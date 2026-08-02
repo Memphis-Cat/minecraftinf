@@ -21,7 +21,6 @@ public class TestCubeMapMath {
 
     @Test
     public void rejectsChunkColumns() {
-        assertThrows(IllegalArgumentException.class,
-                () -> CubeMapMath.euclideanDistanceSquared(CloPos.chunk(1, 3), Vec3.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> CubeMapMath.euclideanDistanceSquared(CloPos.chunk(1, 3), Vec3.ZERO));
     }
 }
