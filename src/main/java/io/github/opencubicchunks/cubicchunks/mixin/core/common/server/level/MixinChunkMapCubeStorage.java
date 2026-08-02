@@ -36,7 +36,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /** Adds the Phase 1 full-cube section persistence path to {@link ChunkMap}. */
-@Mixin(ChunkMap.class)
+@Mixin(value = ChunkMap.class, priority = 900)
 public abstract class MixinChunkMapCubeStorage {
     @Shadow @Final private ServerLevel level;
 
