@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly READY_PATTERN='Done \([0-9.]+s\)!|For help, type "help"'
 readonly COMMAND_TIMEOUT_SECONDS=120
+readonly SAVE_TIMEOUT_SECONDS=240
 readonly STARTUP_TIMEOUT_SECONDS=360
 readonly RCON_CLIENT='.github/scripts/minecraft_rcon.py'
 readonly RCON_PASSWORD='cubicchunks-phase1'
@@ -68,7 +69,7 @@ start_server() {
 stop_server() {
     local log_file="$1"
 
-    rcon_command "stop" --allow-disconnect --connect-timeout 10 || true
+    rcon_command "stop" --allow-disconnect --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 || true
     for _ in $(seq 1 "${COMMAND_TIMEOUT_SECONDS}"); do
         if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
             wait "${server_pid}" || true
@@ -105,7 +106,7 @@ start_server "${first_log}"
 rcon_command "setblock 0 10 0 minecraft:diamond_block"
 rcon_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_PLACED"
 wait_for_log "${first_log}" "CC_BLOCK_PLACED" "${COMMAND_TIMEOUT_SECONDS}"
-rcon_command "save-all flush"
+rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5
 rcon_command "say CC_SAVE_FLUSH_FINISHED"
 wait_for_log "${first_log}" "CC_SAVE_FLUSH_FINISHED" "${COMMAND_TIMEOUT_SECONDS}"
 stop_server "${first_log}"
