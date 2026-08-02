@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/cubicchunks3-phase1
+  workflow_dispatch:
 
 permissions:
   contents: write
