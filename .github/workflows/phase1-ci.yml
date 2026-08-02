@@ -52,3 +52,84 @@ jobs:
             CubicChunksCore/build/reports/
             CubicChunksCore/build/test-results/
           if-no-files-found: ignore
+
+  server-smoke:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Configure smoke-test server
+        shell: bash
+        run: |
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          cat > run/server.properties <<'PROPERTIES'
+          online-mode=false
+          view-distance=2
+          simulation-distance=2
+          max-tick-time=-1
+          level-name=phase1-smoke-world
+          motd=CubicChunks3 Phase 1 Smoke Test
+          PROPERTIES
+
+      - name: Start dedicated server and wait for readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > server-smoke.log
+          setsid ./gradlew runServer --stacktrace --no-daemon >server-smoke.log 2>&1 &
+          process_group=$!
+
+          cleanup() {
+            kill -INT -- "-$process_group" >/dev/null 2>&1 || true
+            sleep 5
+            kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
+            wait "$process_group" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 360); do
+            if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' server-smoke.log; then
+              echo 'Dedicated server reached the ready state.'
+              exit 0
+            fi
+
+            if ! kill -0 "$process_group" >/dev/null 2>&1; then
+              echo 'Dedicated server exited before reaching the ready state.' >&2
+              cat server-smoke.log
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          echo 'Dedicated server did not become ready within six minutes.' >&2
+          cat server-smoke.log
+          exit 1
+
+      - name: Upload dedicated-server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-server-smoke-logs
+          path: |
+            server-smoke.log
+            run/logs/
+            run/crash-reports/
+          if-no-files-found: ignore
