@@ -23,13 +23,14 @@ import org.slf4j.Logger;
 
 /**
  * Equivalent of {@link ChunkStatusTasks} for sparse cube generation.
- *
- * <p>Each generation stage waits for the matching vanilla chunk-column stage and projects the
+ * <p>
+ * Each generation stage waits for the matching vanilla chunk-column stage and projects the
  * generated vertical sections into the cube. This preserves the configured vanilla generator,
- * biomes, carvers and features instead of maintaining test terrain.</p>
- *
- * <p>See also {@link CCChunkStatusTasks} for the real column generation tasks used in cubic
- * worlds.</p>
+ * biomes, carvers and features instead of maintaining test terrain.
+ * </p>
+ * <p>
+ * See also {@link CCChunkStatusTasks} for the real column generation tasks used in cubic worlds.
+ * </p>
  */
 @Dasm(ChunkToCubeSet.class)
 public final class CubeStatusTasks {
