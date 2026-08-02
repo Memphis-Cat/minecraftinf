@@ -22,10 +22,11 @@ import net.minecraft.world.level.chunk.status.WorldGenContext;
 
 /**
  * Projects vanilla-generated chunk columns into one sparse cube.
- *
- * <p>Vanilla columns remain authoritative for structures and column heightmaps. The cube owns
+ * <p>
+ * Vanilla columns remain authoritative for structures and column heightmaps. The cube owns
  * the actual three-dimensional block sections, block entities and post-processing records for
- * its vertical interval.</p>
+ * its vertical interval.
+ * </p>
  */
 public final class CubeColumnBridge {
     private CubeColumnBridge() {}
@@ -94,8 +95,7 @@ public final class CubeColumnBridge {
                     int sectionY = sourceSectionY(cubePos, localY);
                     int sourceIndex = column.getSectionIndexFromSectionY(sectionY);
                     int targetIndex = targetSectionIndex(localX, localY, localZ);
-                    targetSections[targetIndex] = sourceIndex >= 0 && sourceIndex < sourceSections.length
-                            ? sourceSections[sourceIndex].copy()
+                    targetSections[targetIndex] = sourceIndex >= 0 && sourceIndex < sourceSections.length ? sourceSections[sourceIndex].copy()
                             : new LevelChunkSection(biomeRegistry);
                 }
             }
