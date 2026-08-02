@@ -1,6 +1,8 @@
 package io.github.opencubicchunks.cubicchunks.test.world.level.cube;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import java.util.HashSet;
@@ -15,6 +17,7 @@ import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
+import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -132,5 +135,52 @@ public class TestCubeAccess extends BaseTest {
         for (int i = 0; i < 100; i++) {
             findBlocks(random);
         }
+    }
+
+    @Test
+    public void testEmptySpaceQueries() {
+        CubePos cubePos = CubePos.of(3, -4, 5);
+        var cubeAccess = new CubeAccessTestImpl(
+                cubePos, mock(), mock(), mock(), 0L, new LevelChunkSection[CubicConstants.SECTION_COUNT], mock()
+        );
+
+        int cubeMinY = cubePos.minCubeY();
+        int cubeMaxY = cubePos.maxCubeY();
+        int cubeMinSectionY = SectionPos.blockToSectionCoord(cubeMinY);
+        int cubeMaxSectionY = SectionPos.blockToSectionCoord(cubeMaxY);
+
+        assertTrue(cubeAccess.isYSpaceEmpty(cubeMinY, cubeMaxY));
+        for (int sectionY = cubeMinSectionY; sectionY <= cubeMaxSectionY; sectionY++) {
+            assertTrue(cubeAccess.isSectionEmpty(sectionY));
+        }
+        assertTrue(cubeAccess.isSectionEmpty(cubeMinSectionY - 1));
+        assertTrue(cubeAccess.isSectionEmpty(cubeMaxSectionY + 1));
+        assertTrue(cubeAccess.isYSpaceEmpty(Integer.MIN_VALUE, cubeMinY - 1));
+        assertTrue(cubeAccess.isYSpaceEmpty(cubeMaxY + 1, Integer.MAX_VALUE));
+
+        int occupiedLocalSectionY = CubicConstants.DIAMETER_IN_SECTIONS / 2;
+        int occupiedSectionY = cubeMinSectionY + occupiedLocalSectionY;
+        int occupiedLocalBlockY = occupiedLocalSectionY * SectionPos.SECTION_SIZE + 7;
+        BlockPos occupiedPos = cubePos.asBlockPos(
+                CubicConstants.DIAMETER_IN_BLOCKS - 1,
+                occupiedLocalBlockY,
+                CubicConstants.DIAMETER_IN_BLOCKS - 1
+        );
+        cubeAccess.setBlockState(occupiedPos, Blocks.STONE.defaultBlockState(), 3);
+
+        int occupiedSectionMinY = SectionPos.sectionToBlockCoord(occupiedSectionY);
+        int occupiedSectionMaxY = SectionPos.sectionToBlockCoord(occupiedSectionY + 1) - 1;
+        assertFalse(cubeAccess.isSectionEmpty(occupiedSectionY));
+        assertFalse(cubeAccess.isYSpaceEmpty(occupiedSectionMinY, occupiedSectionMaxY));
+        if (occupiedSectionMinY > cubeMinY) {
+            assertTrue(cubeAccess.isYSpaceEmpty(cubeMinY, occupiedSectionMinY - 1));
+        }
+        if (occupiedSectionMaxY < cubeMaxY) {
+            assertTrue(cubeAccess.isYSpaceEmpty(occupiedSectionMaxY + 1, cubeMaxY));
+        }
+
+        cubeAccess.setBlockState(occupiedPos, Blocks.AIR.defaultBlockState(), 3);
+        assertTrue(cubeAccess.isSectionEmpty(occupiedSectionY));
+        assertTrue(cubeAccess.isYSpaceEmpty(cubeMinY, cubeMaxY));
     }
 }

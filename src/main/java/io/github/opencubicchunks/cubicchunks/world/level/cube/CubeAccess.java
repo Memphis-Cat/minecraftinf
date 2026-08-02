@@ -198,13 +198,38 @@ public abstract class CubeAccess implements CloAccess {
     @Override public native void setAllReferences(Map<Structure, LongSet> structureReferencesMap);
 
     @Override public boolean isYSpaceEmpty(int startY, int endY) {
-        // TODO
-        return false;
+        int clampedStartY = Math.max(startY, this.cubePos.minCubeY());
+        int clampedEndY = Math.min(endY, this.cubePos.maxCubeY());
+        if (clampedStartY > clampedEndY) {
+            return true;
+        }
+
+        int firstSectionY = SectionPos.blockToSectionCoord(clampedStartY);
+        int lastSectionY = SectionPos.blockToSectionCoord(clampedEndY);
+        for (int sectionY = firstSectionY; sectionY <= lastSectionY; sectionY++) {
+            if (!this.isSectionEmpty(sectionY)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override public boolean isSectionEmpty(int sectionY) {
-        // TODO
-        return false;
+        int cubeMinSectionY = SectionPos.blockToSectionCoord(this.cubePos.minCubeY());
+        int localSectionY = sectionY - cubeMinSectionY;
+        if (localSectionY < 0 || localSectionY >= CubicConstants.DIAMETER_IN_SECTIONS) {
+            return true;
+        }
+
+        for (int localSectionZ = 0; localSectionZ < CubicConstants.DIAMETER_IN_SECTIONS; localSectionZ++) {
+            for (int localSectionX = 0; localSectionX < CubicConstants.DIAMETER_IN_SECTIONS; localSectionX++) {
+                int sectionIndex = Coords.sectionToIndex(localSectionX, localSectionY, localSectionZ);
+                if (!this.getSection(sectionIndex).hasOnlyAir()) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     @TransformFromMethod(value = "markUnsaved()V", owner = @Ref(ChunkAccess.class))
