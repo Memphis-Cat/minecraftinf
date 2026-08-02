@@ -5,4 +5,6 @@ import io.github.opencubicchunks.cubicchunks.world.level.CubicLevel;
 
 public interface CubicClientLevel extends CubicLevel {
     void cc_onCubeLoaded(CubePos cubePos);
+
+    void cc_onCubeUnloaded(CubePos cubePos);
 }
