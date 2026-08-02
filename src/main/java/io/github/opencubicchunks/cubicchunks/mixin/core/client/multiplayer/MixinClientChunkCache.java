@@ -16,7 +16,6 @@ import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeCache;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubePacketUpdates;
-import io.github.opencubicchunks.cubicchunks.client.multiplayer.CubicClientLevel;
 import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.chunk.MixinChunkSource;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.EmptyLevelCube;
@@ -51,16 +50,12 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
 
     @Shadow @Final ClientLevel level;
 
-    /**
-     * Initialize cube storage and the empty cube if the level is cubic
-     */
     @Inject(method = "<init>", at = @At("RETURN"))
     private void cc_onConstruct(ClientLevel level, int viewDistance, CallbackInfo ci) {
         if (((CanBeCubic) level).cc_isCubic()) {
             cc_emptyCube = new EmptyLevelCube(level, CubePos.of(0, 0, 0),
                     level.registryAccess().lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS));
             cc_cubeStorage = new ClientCubeCache.Storage(calculateStorageRange(viewDistance), level);
-            // TODO we could redirect the initial construction instead of immediately resizing. doesn't really matter
             updateViewRadius(cc_calculateChunkViewDistance(viewDistance));
         }
     }
@@ -68,10 +63,9 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
     private static boolean cc_isValidCube(@Nullable LevelCube chunk, int x, int y, int z) {
         if (chunk == null) {
             return false;
-        } else {
-            CubePos cubePos = chunk.cc_getCloPos().cubePos();
-            return cubePos.getX() == x && cubePos.getY() == y && cubePos.getZ() == z;
         }
+        CubePos cubePos = chunk.cc_getCloPos().cubePos();
+        return cubePos.getX() == x && cubePos.getY() == y && cubePos.getZ() == z;
     }
 
     @Override public void cc_drop(CubePos chunkPos) {
@@ -79,8 +73,6 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
             int i = this.cc_cubeStorage.getIndex(chunkPos.getX(), chunkPos.getY(), chunkPos.getZ());
             LevelCube levelCube = this.cc_cubeStorage.getChunk(i);
             if (cc_isValidCube(levelCube, chunkPos.getX(), chunkPos.getY(), chunkPos.getZ())) {
-                // TODO event hook
-//                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.event.level.ChunkEvent.Unload(levelCube));
                 this.cc_cubeStorage.drop(i, levelCube);
             }
         }
@@ -113,24 +105,20 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
         if (!this.cc_cubeStorage.inRange(x, y, z)) {
             LOGGER.warn("Ignoring cube since it's not in the view range: {}, {}, {}", x, y, z);
             return null;
-        } else {
-            int i = this.cc_cubeStorage.getIndex(x, y, z);
-            LevelCube levelCube = this.cc_cubeStorage.chunks.get(i);
-            CubePos cubePos = CubePos.of(x, y, z);
-            if (!cc_isValidCube(levelCube, x, y, z)) {
-                levelCube = new LevelCube(this.level, cubePos);
-                levelCube.replaceWithPacketData(buffer, map, consumer);
-                this.cc_cubeStorage.replace(i, levelCube);
-            } else {
-                levelCube.replaceWithPacketData(buffer, map, consumer);
-                this.cc_cubeStorage.refreshEmptySections(levelCube);
-            }
-
-            ((CubicClientLevel) this.level).cc_onCubeLoaded(cubePos);
-            // TODO event hook
-//            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.event.level.ChunkEvent.Load(levelCube, false));
-            return levelCube;
         }
+
+        int i = this.cc_cubeStorage.getIndex(x, y, z);
+        LevelCube levelCube = this.cc_cubeStorage.chunks.get(i);
+        CubePos cubePos = CubePos.of(x, y, z);
+        if (!cc_isValidCube(levelCube, x, y, z)) {
+            levelCube = new LevelCube(this.level, cubePos);
+            levelCube.replaceWithPacketData(buffer, map, consumer);
+            this.cc_cubeStorage.replace(i, levelCube);
+        } else {
+            levelCube.replaceWithPacketData(buffer, map, consumer);
+            this.cc_cubeStorage.refreshEmptySections(levelCube);
+        }
+        return levelCube;
     }
 
     @Shadow public abstract void updateViewCenter(int x, int z);
@@ -171,15 +159,12 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
         throw new IllegalStateException("mixin failed to apply");
     }
 
-    @SuppressWarnings("checkstyle:MagicNumber") // <-- TODO it's unclear what the 3 represents in vanilla?
+    @SuppressWarnings("checkstyle:MagicNumber")
     private static int cc_calculateChunkViewDistance(int cubeViewDistance) {
         int cubeStorageRange = calculateStorageRange(cubeViewDistance);
-        // TODO this radius might be larger than it needs to be? coordinate maths is difficult
         int chunkStorageRange = CubicConstants.DIAMETER_IN_SECTIONS * (cubeStorageRange + 1);
-        return chunkStorageRange - 3; // This gives the view distance, which gets passed back into calculateStorageRange which will readd the 3
+        return chunkStorageRange - 3;
     }
-
-    // TODO gatherStats (only used for debug)
 
     @Override public int cc_getLoadedCubeCount() {
         return this.cc_cubeStorage.chunkCount;
