@@ -59,11 +59,12 @@ jobs:
       - name: Run full checks
         run: ./gradlew check --stacktrace --no-daemon
 
-      - name: Inspect Minecraft storage APIs
+      - name: Inspect Minecraft completion APIs
+        if: always()
         shell: bash
         run: bash .github/scripts/inspect-minecraft-storage.sh
 
-      - name: Upload Minecraft storage API inspection
+      - name: Upload Minecraft completion API inspection
         if: always()
         uses: actions/upload-artifact@v4
         with:
