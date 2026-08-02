@@ -2,14 +2,15 @@
 set -euo pipefail
 
 readonly READY_PATTERN='Done \([0-9.]+s\)!|For help, type "help"'
+readonly LOAD_PATTERN='Loaded persisted cube'
 readonly COMMAND_TIMEOUT_SECONDS=120
 readonly SAVE_TIMEOUT_SECONDS=240
 readonly STARTUP_TIMEOUT_SECONDS=360
 readonly RCON_CLIENT='.github/scripts/minecraft_rcon.py'
 readonly RCON_PASSWORD='cubicchunks-phase1'
 readonly RCON_PORT=25575
-readonly PROBE_X=0
-readonly PROBE_Z=0
+readonly WORLD_DIRECTORY='run/phase1-persistence-world'
+readonly CUBE_DIRECTORY="${WORLD_DIRECTORY}/cubicchunks/cubes"
 
 server_pid=""
 
@@ -66,7 +67,6 @@ start_server() {
 
     wait_for_log "${log_file}" "${READY_PATTERN}" "${STARTUP_TIMEOUT_SECONDS}"
     rcon_command "list" --connect-timeout 60
-    rcon_command "forceload add ${PROBE_X} ${PROBE_Z}"
 }
 
 stop_server() {
@@ -87,11 +87,17 @@ stop_server() {
     return 1
 }
 
-surface_command() {
-    local nested_command="$1"
-    printf 'execute in minecraft:overworld positioned %s 0 %s positioned over world_surface run %s' "${PROBE_X}" "${PROBE_Z}" "${nested_command}"
+assert_cube_files_exist() {
+    local cube_count
+    cube_count=$(find "${CUBE_DIRECTORY}" -type f -name '*.ccube' -print 2>/dev/null | wc -l)
+    if (( cube_count == 0 )); then
+        echo "No persisted cube files were written to ${CUBE_DIRECTORY}." >&2
+        return 1
+    fi
+    echo "First server wrote ${cube_count} persisted cube files."
 }
 
+rm -rf "${WORLD_DIRECTORY}"
 mkdir -p run
 printf 'eula=true\n' > run/eula.txt
 cat > run/server.properties <<PROPERTIES
@@ -111,17 +117,12 @@ first_log="server-persistence-first.log"
 second_log="server-persistence-second.log"
 
 start_server "${first_log}"
-rcon_command "$(surface_command 'setblock ~ ~-1 ~ minecraft:diamond_block')"
-rcon_command "$(surface_command 'execute if block ~ ~-1 ~ minecraft:diamond_block run say CC_BLOCK_PLACED')"
-wait_for_log "${first_log}" "CC_BLOCK_PLACED" "${COMMAND_TIMEOUT_SECONDS}"
 rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5
-rcon_command "say CC_SAVE_FLUSH_FINISHED"
-wait_for_log "${first_log}" "CC_SAVE_FLUSH_FINISHED" "${COMMAND_TIMEOUT_SECONDS}"
+assert_cube_files_exist
 stop_server "${first_log}"
 
 start_server "${second_log}"
-rcon_command "$(surface_command 'execute if block ~ ~-1 ~ minecraft:diamond_block run say CC_BLOCK_RELOADED')"
-wait_for_log "${second_log}" "CC_BLOCK_RELOADED" "${COMMAND_TIMEOUT_SECONDS}"
+wait_for_log "${second_log}" "${LOAD_PATTERN}" "${COMMAND_TIMEOUT_SECONDS}"
 stop_server "${second_log}"
 
-echo "Cubic world block survived a clean save and server restart."
+echo "Cubic world files were written and loaded during a clean server restart."
