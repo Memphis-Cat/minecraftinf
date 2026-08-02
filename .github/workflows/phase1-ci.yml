@@ -22,6 +22,21 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Apply development patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for patch in patches/*.patch; do
+            if git apply --reverse --check "$patch" >/dev/null 2>&1; then
+              echo "Already applied: $patch"
+            else
+              git apply --check "$patch"
+              git apply "$patch"
+            fi
+          done
+          git diff --check
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
