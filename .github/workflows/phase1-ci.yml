@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   apply-cube-distance-fix:
-    if: ${{ github.event_name == 'push' && hashFiles('patches/0004-fix-cube-distance-axes.patch') != '' }}
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out development branch and submodules
@@ -23,7 +23,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Check for staged distance patch
+        id: patch
+        shell: bash
+        run: |
+          if [[ -f patches/0004-fix-cube-distance-axes.patch ]]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Java 21
+        if: steps.patch.outputs.present == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -31,6 +42,7 @@ jobs:
           cache: gradle
 
       - name: Apply and format distance fix
+        if: steps.patch.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +51,7 @@ jobs:
           ./gradlew spotlessApply --no-daemon
 
       - name: Commit integrated source
+        if: steps.patch.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
