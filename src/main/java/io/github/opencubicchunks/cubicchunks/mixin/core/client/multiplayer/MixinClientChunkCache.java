@@ -16,6 +16,7 @@ import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeCache;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubePacketUpdates;
+import io.github.opencubicchunks.cubicchunks.client.multiplayer.CubicClientLevel;
 import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.chunk.MixinChunkSource;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.EmptyLevelCube;
@@ -69,12 +70,13 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
     }
 
     @Override public void cc_drop(CubePos chunkPos) {
-        if (this.cc_cubeStorage.inRange(chunkPos.getX(), chunkPos.getY(), chunkPos.getZ())) {
-            int i = this.cc_cubeStorage.getIndex(chunkPos.getX(), chunkPos.getY(), chunkPos.getZ());
-            LevelCube levelCube = this.cc_cubeStorage.getChunk(i);
-            if (cc_isValidCube(levelCube, chunkPos.getX(), chunkPos.getY(), chunkPos.getZ())) {
-                this.cc_cubeStorage.drop(i, levelCube);
-            }
+        if (!this.cc_cubeStorage.inRange(chunkPos.getX(), chunkPos.getY(), chunkPos.getZ())) {
+            return;
+        }
+        int index = this.cc_cubeStorage.getIndex(chunkPos.getX(), chunkPos.getY(), chunkPos.getZ());
+        LevelCube levelCube = this.cc_cubeStorage.getChunk(index);
+        if (cc_isValidCube(levelCube, chunkPos.getX(), chunkPos.getY(), chunkPos.getZ()) && this.cc_cubeStorage.drop(index, levelCube)) {
+            ((CubicClientLevel) this.level).cc_onCubeUnloaded(chunkPos);
         }
     }
 
@@ -107,13 +109,18 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
             return null;
         }
 
-        int i = this.cc_cubeStorage.getIndex(x, y, z);
-        LevelCube levelCube = this.cc_cubeStorage.chunks.get(i);
+        int index = this.cc_cubeStorage.getIndex(x, y, z);
+        LevelCube levelCube = this.cc_cubeStorage.chunks.get(index);
         CubePos cubePos = CubePos.of(x, y, z);
         if (!cc_isValidCube(levelCube, x, y, z)) {
-            levelCube = new LevelCube(this.level, cubePos);
-            levelCube.replaceWithPacketData(buffer, map, consumer);
-            this.cc_cubeStorage.replace(i, levelCube);
+            LevelCube replacement = new LevelCube(this.level, cubePos);
+            replacement.replaceWithPacketData(buffer, map, consumer);
+            LevelCube previous = this.cc_cubeStorage.replace(index, replacement);
+            if (previous != null && previous != replacement) {
+                ((CubicClientLevel) this.level).cc_onCubeUnloaded(previous.cc_getCubePos());
+            }
+            ((CubicClientLevel) this.level).cc_onCubeLoaded(cubePos);
+            levelCube = replacement;
         } else {
             levelCube.replaceWithPacketData(buffer, map, consumer);
             this.cc_cubeStorage.refreshEmptySections(levelCube);
@@ -133,24 +140,29 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
     @Shadow public abstract void updateViewRadius(int viewDistance);
 
     @Override public void cc_updateViewRadius(int viewDistance) {
-        int i = this.cc_cubeStorage.cubeRadius;
-        int j = calculateStorageRange(viewDistance);
-        if (i != j) {
-            ClientCubeCache.Storage storage = new ClientCubeCache.Storage(j, this.level);
-            storage.viewCenterX = this.cc_cubeStorage.viewCenterX;
-            storage.viewCenterY = this.cc_cubeStorage.viewCenterY;
-            storage.viewCenterZ = this.cc_cubeStorage.viewCenterZ;
+        int currentRadius = this.cc_cubeStorage.cubeRadius;
+        int newRadius = calculateStorageRange(viewDistance);
+        if (currentRadius != newRadius) {
+            ClientCubeCache.Storage previousStorage = this.cc_cubeStorage;
+            ClientCubeCache.Storage replacementStorage = new ClientCubeCache.Storage(newRadius, this.level);
+            replacementStorage.viewCenterX = previousStorage.viewCenterX;
+            replacementStorage.viewCenterY = previousStorage.viewCenterY;
+            replacementStorage.viewCenterZ = previousStorage.viewCenterZ;
 
-            for (int k = 0; k < this.cc_cubeStorage.chunks.length(); ++k) {
-                LevelCube levelCube = this.cc_cubeStorage.chunks.get(k);
-                if (levelCube != null) {
-                    CubePos cubePos = levelCube.cc_getCloPos().cubePos();
-                    if (storage.inRange(cubePos.getX(), cubePos.getY(), cubePos.getZ())) {
-                        storage.replace(storage.getIndex(cubePos.getX(), cubePos.getY(), cubePos.getZ()), levelCube);
-                    }
+            for (int index = 0; index < previousStorage.chunks.length(); ++index) {
+                LevelCube levelCube = previousStorage.chunks.get(index);
+                if (levelCube == null) {
+                    continue;
+                }
+                CubePos cubePos = levelCube.cc_getCloPos().cubePos();
+                if (replacementStorage.inRange(cubePos.getX(), cubePos.getY(), cubePos.getZ())) {
+                    replacementStorage.replace(replacementStorage.getIndex(cubePos.getX(), cubePos.getY(), cubePos.getZ()), levelCube);
+                } else {
+                    levelCube.clearAllBlockEntities();
+                    ((CubicClientLevel) this.level).cc_onCubeUnloaded(cubePos);
                 }
             }
-            this.cc_cubeStorage = storage;
+            this.cc_cubeStorage = replacementStorage;
         }
         updateViewRadius(cc_calculateChunkViewDistance(viewDistance));
     }
