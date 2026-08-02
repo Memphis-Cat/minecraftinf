@@ -9,9 +9,49 @@ on:
       - dev
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  apply-cube-distance-fix:
+    if: ${{ github.event_name == 'push' && hashFiles('patches/0004-fix-cube-distance-axes.patch') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out development branch and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: agent/cubicchunks3-phase1
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Apply and format distance fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check patches/0004-fix-cube-distance-axes.patch
+          git apply patches/0004-fix-cube-distance-axes.patch
+          ./gradlew spotlessApply --no-daemon
+
+      - name: Commit integrated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
+          git add src/main/java/io/github/opencubicchunks/cubicchunks/server/level/CubeMapMath.java
+          git add src/test/java/io/github/opencubicchunks/cubicchunks/test/server/level/TestCubeMapMath.java
+          git rm patches/0004-fix-cube-distance-axes.patch
+          git rm .github/workflows/apply-cube-distance-fix.yml
+          git commit -m 'Fix cube distance axis calculations'
+          git push origin HEAD:agent/cubicchunks3-phase1
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 60
