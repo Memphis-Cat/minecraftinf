@@ -27,9 +27,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 public interface ClientCubeCache extends CubeSource {
-    // TODO (P2) we might want a version of the vanilla replaceWithPacketData with a different signature for handling chunks, since we only need
-    // heightmap data with CC
-
     void cc_drop(CubePos chunkPos);
 
     void cc_replaceBiomes(int x, int y, int z, FriendlyByteBuf buffer);
@@ -43,8 +40,6 @@ public interface ClientCubeCache extends CubeSource {
 
     void cc_updateViewRadius(int viewDistance);
 
-    // Fields and methods on this are public so they can be accessed from MixinClientChunkCache and tests; they should not be used anywhere else
-    // (This has to be here since we can't add inner classes with mixin)
     @Dasm(ChunkToCubeSet.class)
     final class Storage {
         public final AtomicReferenceArray<LevelCube> chunks;
@@ -55,7 +50,6 @@ public interface ClientCubeCache extends CubeSource {
         public volatile int viewCenterY;
         public volatile int viewCenterZ;
         public int chunkCount;
-        // Field added since we can't get it off ClientChunkCache since this is no longer an inner class
         final ClientLevel level;
 
         public Storage(int chunkRadius, ClientLevel clientLevel) {
@@ -71,15 +65,25 @@ public interface ClientCubeCache extends CubeSource {
         }
 
         public void replace(int chunkIndex, @Nullable LevelCube chunk) {
-            LevelCube levelchunk = this.chunks.getAndSet(chunkIndex, chunk);
-            if (levelchunk != null) {
+            LevelCube previous = this.chunks.getAndSet(chunkIndex, chunk);
+            if (previous == chunk) {
+                return;
+            }
+            if (previous != null) {
                 --this.chunkCount;
-                this.dropEmptySections(levelchunk);
-//                this.level.unload(levelchunk); // TODO P2
+                this.dropEmptySections(previous);
+                previous.clearAllBlockEntities();
+                if (this.level instanceof CubicClientLevel cubicLevel) {
+                    cubicLevel.cc_onCubeUnloaded(previous.cc_getCubePos());
+                }
             }
 
             if (chunk != null) {
                 ++this.chunkCount;
+                this.addEmptySections(chunk);
+                if (this.level instanceof CubicClientLevel cubicLevel) {
+                    cubicLevel.cc_onCubeLoaded(chunk.cc_getCubePos());
+                }
             }
         }
 
@@ -87,9 +91,11 @@ public interface ClientCubeCache extends CubeSource {
             if (this.chunks.compareAndSet(chunkIndex, chunk, null)) {
                 this.chunkCount--;
                 this.dropEmptySections(chunk);
+                chunk.clearAllBlockEntities();
+                if (this.level instanceof CubicClientLevel cubicLevel) {
+                    cubicLevel.cc_onCubeUnloaded(chunk.cc_getCubePos());
+                }
             }
-
-//            this.level.unload(chunk); // TODO P2
         }
 
         public void onSectionEmptinessChanged(int x, int y, int z, boolean isEmpty) {
@@ -98,7 +104,7 @@ public interface ClientCubeCache extends CubeSource {
                 if (isEmpty) {
                     this.loadedEmptySections.add(i);
                 } else if (this.loadedEmptySections.remove(i)) {
-//                    ClientChunkCache.this.level.onSectionBecomingNonEmpty(i); // TODO P2
+                    this.level.onSectionBecomingNonEmpty(i);
                 }
             }
         }
@@ -148,7 +154,7 @@ public interface ClientCubeCache extends CubeSource {
                         if (chunkSection.hasOnlyAir()) {
                             this.loadedEmptySections.add(sectionPosLong);
                         } else if (this.loadedEmptySections.remove(sectionPosLong)) {
-//                            ClientChunkCache.this.level.onSectionBecomingNonEmpty(sectionPosLong); // TODO P2
+                            this.level.onSectionBecomingNonEmpty(sectionPosLong);
                         }
                     }
                 }
@@ -164,7 +170,7 @@ public interface ClientCubeCache extends CubeSource {
         public native @Nullable LevelCube getChunk(int chunkIndex);
 
         public void dumpChunks(String filePath) {
-            // TODO reimplement debug code
+            throw new UnsupportedOperationException("Cube cache dumps are not implemented for this format");
         }
     }
 }
