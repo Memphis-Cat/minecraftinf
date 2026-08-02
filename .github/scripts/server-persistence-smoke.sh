@@ -35,6 +35,24 @@ workspace_java_pids() {
     done
 }
 
+capture_save_flush_thread_dumps() {
+    local process_id
+    local command_line
+    local java_pids
+
+    java_pids=$(workspace_java_pids || true)
+    : > save-flush-processes.txt
+    while read -r process_id; do
+        if [[ -z "${process_id}" ]]; then
+            continue
+        fi
+
+        command_line=$(tr '\0' ' ' < "/proc/${process_id}/cmdline" 2>/dev/null || true)
+        printf 'PID %s: %s\n' "${process_id}" "${command_line}" >> save-flush-processes.txt
+        jcmd "${process_id}" Thread.print -l > "save-flush-thread-${process_id}.txt" 2>&1 || true
+    done <<< "${java_pids}"
+}
+
 wait_for_world_lock_release() {
     local lock_file="${WORLD_DIRECTORY}/session.lock"
 
@@ -248,6 +266,7 @@ start_server "${first_log}"
 rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 >save-flush-rcon.log 2>&1 &
 save_rcon_pid=$!
 wait_for_stable_cube_files
+capture_save_flush_thread_dumps
 kill "${save_rcon_pid}" >/dev/null 2>&1 || true
 wait "${save_rcon_pid}" >/dev/null 2>&1 || true
 terminate_server
