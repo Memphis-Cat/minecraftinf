@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   apply-cube-distance-fix:
-    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out development branch and submodules
