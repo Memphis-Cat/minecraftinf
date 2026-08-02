@@ -80,41 +80,14 @@ public final class CubeStorage {
         }
 
         try (DataInputStream input = new DataInputStream(new BufferedInputStream(Files.newInputStream(source)))) {
-            int magic = input.readInt();
-            if (magic != MAGIC) {
-                throw new IOException("Invalid cube storage magic in " + source);
-            }
-
-            int version = input.readInt();
-            if (version != VERSION) {
-                throw new IOException("Unsupported cube storage version " + version + " in " + source);
-            }
-
-            CubePos storedPos = CubePos.of(input.readInt(), input.readInt(), input.readInt());
-            if (!storedPos.equals(expectedPos)) {
-                throw new IOException("Cube file position mismatch: expected " + expectedPos + ", found " + storedPos);
-            }
-
-            int sectionCount = input.readInt();
-            if (sectionCount != CubicConstants.SECTION_COUNT) {
-                throw new IOException("Cube section count mismatch: expected " + CubicConstants.SECTION_COUNT + ", found " + sectionCount);
-            }
+            validateMagic(input.readInt(), source);
+            validateVersion(input.readInt(), source);
+            validatePosition(CubePos.of(input.readInt(), input.readInt(), input.readInt()), expectedPos);
+            validateSectionCount(input.readInt());
 
             long inhabitedTime = input.readLong();
             boolean lightCorrect = input.readBoolean();
-            int byteCount = input.readInt();
-            if (byteCount < 0 || byteCount > MAX_SERIALIZED_BYTES) {
-                throw new IOException("Invalid cube section payload size " + byteCount + " in " + source);
-            }
-
-            byte[] sectionData = input.readNBytes(byteCount);
-            if (sectionData.length != byteCount) {
-                throw new EOFException("Truncated cube section payload in " + source);
-            }
-            if (input.read() != -1) {
-                throw new IOException("Trailing data after cube payload in " + source);
-            }
-
+            byte[] sectionData = readSectionData(input, source);
             Registry<Biome> biomeRegistry = level.registryAccess().lookupOrThrow(Registries.BIOME);
             LevelChunkSection[] sections = deserializeSections(sectionData, biomeRegistry);
             LevelCube cube = new LevelCube(level, expectedPos, UpgradeData.EMPTY, new LevelChunkTicks<>(), new LevelChunkTicks<>(), inhabitedTime,
@@ -128,6 +101,46 @@ public final class CubeStorage {
     private Path cubePath(CubePos pos) {
         Path region = root.resolve("r." + (pos.getX() >> REGION_SHIFT) + "." + (pos.getY() >> REGION_SHIFT) + "." + (pos.getZ() >> REGION_SHIFT));
         return region.resolve("c." + pos.getX() + "." + pos.getY() + "." + pos.getZ() + ".ccube");
+    }
+
+    private static void validateMagic(int magic, Path source) throws IOException {
+        if (magic != MAGIC) {
+            throw new IOException("Invalid cube storage magic in " + source);
+        }
+    }
+
+    private static void validateVersion(int version, Path source) throws IOException {
+        if (version != VERSION) {
+            throw new IOException("Unsupported cube storage version " + version + " in " + source);
+        }
+    }
+
+    private static void validatePosition(CubePos storedPos, CubePos expectedPos) throws IOException {
+        if (!storedPos.equals(expectedPos)) {
+            throw new IOException("Cube file position mismatch: expected " + expectedPos + ", found " + storedPos);
+        }
+    }
+
+    private static void validateSectionCount(int sectionCount) throws IOException {
+        if (sectionCount != CubicConstants.SECTION_COUNT) {
+            throw new IOException("Cube section count mismatch: expected " + CubicConstants.SECTION_COUNT + ", found " + sectionCount);
+        }
+    }
+
+    private static byte[] readSectionData(DataInputStream input, Path source) throws IOException {
+        int byteCount = input.readInt();
+        if (byteCount < 0 || byteCount > MAX_SERIALIZED_BYTES) {
+            throw new IOException("Invalid cube section payload size " + byteCount + " in " + source);
+        }
+
+        byte[] sectionData = input.readNBytes(byteCount);
+        if (sectionData.length != byteCount) {
+            throw new EOFException("Truncated cube section payload in " + source);
+        }
+        if (input.read() != -1) {
+            throw new IOException("Trailing data after cube payload in " + source);
+        }
+        return sectionData;
     }
 
     private static byte[] serializeSections(LevelCube cube) throws IOException {
