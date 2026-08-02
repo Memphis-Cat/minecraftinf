@@ -46,8 +46,48 @@ jobs:
       - name: Format source
         run: ./gradlew spotlessApply --stacktrace --no-daemon
 
-      - name: Run unit and integration tests
-        run: ./gradlew test --stacktrace --no-daemon
+      - name: Run unit and integration tests with stall diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > runtime-test.log
+          setsid ./gradlew test --stacktrace --no-daemon >runtime-test.log 2>&1 &
+          process_group=$!
+
+          terminate_group() {
+            kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
+            sleep 3
+            kill -KILL -- "-$process_group" >/dev/null 2>&1 || true
+          }
+          trap terminate_group EXIT
+
+          for _ in $(seq 1 480); do
+            if ! kill -0 "$process_group" >/dev/null 2>&1; then
+              wait "$process_group"
+              trap - EXIT
+              exit 0
+            fi
+            sleep 1
+          done
+
+          ps -eo pid,ppid,pgid,stat,etime,cmd > runtime-test-processes.txt
+          for pid in $(jps -q 2>/dev/null || true); do
+            jcmd "$pid" Thread.print -l > "runtime-test-thread-${pid}.txt" 2>&1 || true
+          done
+
+          for _ in $(seq 1 420); do
+            if ! kill -0 "$process_group" >/dev/null 2>&1; then
+              wait "$process_group"
+              trap - EXIT
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo 'Runtime tests exceeded fifteen minutes.' >&2
+          terminate_group
+          trap - EXIT
+          exit 124
 
       - name: Run full checks
         run: ./gradlew check --stacktrace --no-daemon
@@ -69,6 +109,9 @@ jobs:
         with:
           name: runtime-completion-validation
           path: |
+            runtime-test.log
+            runtime-test-processes.txt
+            runtime-test-thread-*.txt
             build/reports/
             build/test-results/
             CubicChunksCore/build/reports/
