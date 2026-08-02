@@ -8,6 +8,8 @@ readonly STARTUP_TIMEOUT_SECONDS=360
 readonly RCON_CLIENT='.github/scripts/minecraft_rcon.py'
 readonly RCON_PASSWORD='cubicchunks-phase1'
 readonly RCON_PORT=25575
+readonly PROBE_X=0
+readonly PROBE_Z=0
 
 server_pid=""
 
@@ -64,6 +66,7 @@ start_server() {
 
     wait_for_log "${log_file}" "${READY_PATTERN}" "${STARTUP_TIMEOUT_SECONDS}"
     rcon_command "list" --connect-timeout 60
+    rcon_command "forceload add ${PROBE_X} ${PROBE_Z}"
 }
 
 stop_server() {
@@ -82,6 +85,11 @@ stop_server() {
     echo "Server did not stop cleanly." >&2
     cat "${log_file}" >&2
     return 1
+}
+
+surface_command() {
+    local nested_command="$1"
+    printf 'execute in minecraft:overworld positioned %s 0 %s positioned over world_surface run %s' "${PROBE_X}" "${PROBE_Z}" "${nested_command}"
 }
 
 mkdir -p run
@@ -103,8 +111,8 @@ first_log="server-persistence-first.log"
 second_log="server-persistence-second.log"
 
 start_server "${first_log}"
-rcon_command "setblock 0 10 0 minecraft:diamond_block"
-rcon_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_PLACED"
+rcon_command "$(surface_command 'setblock ~ ~-1 ~ minecraft:diamond_block')"
+rcon_command "$(surface_command 'execute if block ~ ~-1 ~ minecraft:diamond_block run say CC_BLOCK_PLACED')"
 wait_for_log "${first_log}" "CC_BLOCK_PLACED" "${COMMAND_TIMEOUT_SECONDS}"
 rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5
 rcon_command "say CC_SAVE_FLUSH_FINISHED"
@@ -112,7 +120,7 @@ wait_for_log "${first_log}" "CC_SAVE_FLUSH_FINISHED" "${COMMAND_TIMEOUT_SECONDS}
 stop_server "${first_log}"
 
 start_server "${second_log}"
-rcon_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_RELOADED"
+rcon_command "$(surface_command 'execute if block ~ ~-1 ~ minecraft:diamond_block run say CC_BLOCK_RELOADED')"
 wait_for_log "${second_log}" "CC_BLOCK_RELOADED" "${COMMAND_TIMEOUT_SECONDS}"
 stop_server "${second_log}"
 
