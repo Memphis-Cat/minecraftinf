@@ -12,6 +12,7 @@ import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cc_core.world.SpawnPlaceFinder;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
+import io.github.opencubicchunks.cubicchunks.server.ServerShutdownWork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -88,11 +89,9 @@ public abstract class MixinMinecraftServer {
         return cubeDiameter * cubeDiameter * cubeDiameter + chunkDiameter * chunkDiameter;
     }
 
-    // Temporary hack to let us unload a world without saving
-    // TODO (P2): saving
     @Redirect(method = "stopServer", at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;anyMatch(Ljava/util/function/Predicate;)Z"))
-    private boolean cc_onStopServer_chunkMapHasWork(Stream instance, Predicate<?> predicate) {
-        return false;
+    private <T> boolean cc_onStopServer_chunkMapHasWork(Stream<T> instance, Predicate<? super T> predicate) {
+        return ServerShutdownWork.hasPendingWork(instance, predicate);
     }
 
     // TODO P2 :: Forced cubes will need to be implemented here as well; but this includes saving logic so P2
