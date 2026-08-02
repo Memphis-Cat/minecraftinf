@@ -1,0 +1,84 @@
+diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
+index 9cd24bd..56a993f 100644
+--- a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
++++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
+@@ -30,6 +30,7 @@ import io.github.opencubicchunks.cc_core.api.CubicConstants;
+ import io.github.opencubicchunks.cc_core.utils.Coords;
+ import io.github.opencubicchunks.cc_core.world.level.CloPos;
+ import io.github.opencubicchunks.cubicchunks.CanBeCubic;
++import io.github.opencubicchunks.cubicchunks.CubicChunks;
+ import io.github.opencubicchunks.cubicchunks.MarkableAsCubic;
+ import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.chunk.storage.MixinChunkStorage;
+ import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
+@@ -49,8 +50,10 @@ import io.github.opencubicchunks.cubicchunks.util.StaticCache3D;
+ import io.github.opencubicchunks.cubicchunks.world.level.chunklike.CloAccess;
+ import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
++import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.status.CubeStep;
+ import io.github.opencubicchunks.cubicchunks.world.level.entity.CloStatusUpdateListener;
++import io.github.opencubicchunks.cubicchunks.world.storage.CubeStorage;
+ import net.minecraft.ReportedException;
+ import net.minecraft.Util;
+ import net.minecraft.nbt.CompoundTag;
+@@ -82,6 +85,7 @@ import org.spongepowered.asm.mixin.Dynamic;
+ import org.spongepowered.asm.mixin.Final;
+ import org.spongepowered.asm.mixin.Mixin;
+ import org.spongepowered.asm.mixin.Shadow;
++import org.spongepowered.asm.mixin.Unique;
+ import org.spongepowered.asm.mixin.injection.At;
+ import org.spongepowered.asm.mixin.injection.Inject;
+ import org.spongepowered.asm.mixin.injection.Redirect;
+@@ -115,6 +119,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+     private CloProgressListener cc_progressListener;
+     @AddFieldToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, field = "chunkStatusListener:Lnet/minecraft/world/level/entity/ChunkStatusUpdateListener;")
+     private CloStatusUpdateListener cc_cloStatusListener;
++    @Unique private CubeStorage cc_cubeStorage;
+ 
+     // TODO once we can target non-return locations in constructors, do this when the vanilla field is set
+     @Inject(method = "<init>", at = @At("RETURN"))
+@@ -130,6 +135,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+             // best approach is without making our own constructor
+             cc_cloStatusListener = (cloPos, fullChunkStatus) -> {};
+             ((MarkableAsCubic) distanceManager).cc_setCubic();
++            cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"));
+         }
+     }
+ 
+@@ -324,6 +330,14 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+ 
+     @AddMethodToSets(containers = ChunkToCubeSet.ChunkMap_redirects.class, method = "scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")
+     private CompletableFuture<CloAccess> cc_scheduleChunkLoad(CubePos cubePos) {
++        try {
++            Optional<CloAccess> storedCube = cc_cubeStorage.load(level, cubePos).map(cube -> (CloAccess) cube);
++            if (storedCube.isPresent()) {
++                return CompletableFuture.completedFuture(storedCube.get());
++            }
++        } catch (Exception exception) {
++            CubicChunks.LOGGER.error("Failed to load cube {}", cubePos, exception);
++        }
+         return cc_scheduleChunkLoad(CloPos.cube(cubePos));
+     }
+ 
+@@ -432,10 +446,19 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+     @TransformFromMethod("saveChunkIfNeeded(Lnet/minecraft/server/level/ChunkHolder;J)Z")
+     private native boolean cc_saveChunkIfNeeded(ChunkHolder holder, long gameTime);
+ 
+-    // TODO (P2): for now we just don't save (requires more things to be CC-ified to not crash)
+     @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "save(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z")
+     private boolean cc_save(CloAccess cloAccess) {
+-        return false;
++        if (!(cloAccess instanceof LevelCube cube)) {
++            return false;
++        }
++        try {
++            cc_cubeStorage.save(cube);
++            cube.tryMarkSaved();
++            return true;
++        } catch (Exception exception) {
++            CubicChunks.LOGGER.error("Failed to save cube {}", cube.cc_getCubePos(), exception);
++            return false;
++        }
+     }
+ 
+ //    //region [cc_save dasm + mixin]
