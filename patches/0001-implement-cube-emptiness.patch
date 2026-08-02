@@ -1,16 +1,3 @@
-From e23e0e42b550ed0ba653b5460350193cd84403c0 Mon Sep 17 00:00:00 2001
-From: Memphis-Cat CubicChunks3 Workspace <noreply@local>
-Date: Sun, 2 Aug 2026 18:40:00 +0100
-Subject: [PATCH] Implement cube emptiness queries
-
-CubeAccess currently returns false from both isYSpaceEmpty and
-isSectionEmpty. This makes every cube appear occupied, including cubes made
-entirely from air. Implement section-aware checks and add unit coverage.
----
- .../cubicchunks/world/level/cube/CubeAccess.java   | 37 +++++++++++++--
- .../test/world/level/cube/TestCubeAccess.java      | 55 ++++++++++++++++++++++
- 2 files changed, 89 insertions(+), 3 deletions(-)
-
 diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/CubeAccess.java b/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/CubeAccess.java
 index 34400c5..1111111 100644
 --- a/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/CubeAccess.java
@@ -62,7 +49,7 @@ diff --git a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/leve
 index eb91966..2222222 100644
 --- a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeAccess.java
 +++ b/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeAccess.java
-@@ -1,7 +1,9 @@
+@@ -1,6 +1,8 @@
  package io.github.opencubicchunks.cubicchunks.test.world.level.cube;
  
  import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -79,7 +66,7 @@ index eb91966..2222222 100644
  import net.minecraft.nbt.CompoundTag;
  import net.minecraft.world.entity.Entity;
  import net.minecraft.world.level.LevelHeightAccessor;
-@@ -132,4 +135,56 @@ public class TestCubeAccess extends BaseTest {
+@@ -132,4 +135,51 @@ public class TestCubeAccess extends BaseTest {
              findBlocks(random);
          }
      }
@@ -131,5 +118,3 @@ index eb91966..2222222 100644
 +        assertTrue(cubeAccess.isYSpaceEmpty(cubeMinY, cubeMaxY));
 +    }
  }
--- 
-2.50.1
