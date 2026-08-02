@@ -23,14 +23,36 @@ fi
 printf '%s\n' "${minecraft_jar}" > "${OUTPUT_DIR}/minecraft-jar.txt"
 
 classes=(
+    net.minecraft.client.color.block.BlockTintCache
+    net.minecraft.client.multiplayer.ClientChunkCache
+    net.minecraft.client.multiplayer.ClientLevel
     net.minecraft.server.level.ChunkMap
+    net.minecraft.server.level.DistanceManager
+    net.minecraft.server.level.ServerChunkCache
+    net.minecraft.server.level.ServerLevel
+    net.minecraft.util.StaticCache2D
+    net.minecraft.world.level.chunk.ChunkAccess
+    net.minecraft.world.level.chunk.ChunkGenerator
+    net.minecraft.world.level.chunk.LevelChunk
     net.minecraft.world.level.chunk.LevelChunkSection
     net.minecraft.world.level.chunk.PalettedContainer
+    net.minecraft.world.level.chunk.status.ChunkStatusTasks
+    net.minecraft.world.level.chunk.status.WorldGenContext
     net.minecraft.world.level.chunk.storage.ChunkStorage
     net.minecraft.world.level.chunk.storage.IOWorker
     net.minecraft.world.level.chunk.storage.RegionFileStorage
     net.minecraft.world.level.chunk.storage.RegionStorageInfo
     net.minecraft.world.level.chunk.storage.SerializableChunkData
+    net.minecraft.world.level.entity.TransientEntitySectionManager
+    net.minecraft.world.level.levelgen.Heightmap
+    net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator
+    net.minecraft.world.level.lighting.ChunkSkyLightSources
+    net.minecraft.world.level.lighting.LevelLightEngine
+    net.minecraft.world.level.lighting.LightEngine
+    net.minecraft.world.level.lighting.ThreadedLevelLightEngine
+    net.minecraft.world.ticks.LevelChunkTicks
+    net.minecraft.world.ticks.LevelTicks
+    net.minecraft.world.entity.ai.village.poi.PoiManager
     net.minecraft.nbt.NbtIo
 )
 
@@ -42,7 +64,7 @@ for class_name in "${classes[@]}"; do
 done
 
 jar tf "${minecraft_jar}" \
-    | grep -E '(^net/minecraft/world/level/chunk/storage/|^net/minecraft/nbt/NbtIo|^net/minecraft/server/level/ChunkMap)' \
-    | sort > "${OUTPUT_DIR}/storage-classes.txt"
+    | grep -E '(^net/minecraft/client/multiplayer/Client(Level|ChunkCache)|^net/minecraft/server/level/(ChunkMap|DistanceManager|ServerChunkCache|ServerLevel)|^net/minecraft/world/level/(chunk/|entity/TransientEntitySectionManager|levelgen/(Heightmap|NoiseBasedChunkGenerator)|lighting/|ticks/)|^net/minecraft/nbt/NbtIo)' \
+    | sort > "${OUTPUT_DIR}/relevant-classes.txt"
 
-echo "Storage API inspection written to ${OUTPUT_DIR}."
+echo "Minecraft API inspection written to ${OUTPUT_DIR}."
