@@ -191,6 +191,9 @@ jobs:
           path: |
             server-persistence-first.log
             server-persistence-second.log
+            save-flush-rcon.log
+            save-flush-processes.txt
+            save-flush-thread-*.txt
             run/logs/
             run/crash-reports/
             run/phase1-persistence-world/level.dat
