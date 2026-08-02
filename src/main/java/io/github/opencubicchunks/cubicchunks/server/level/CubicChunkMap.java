@@ -1,6 +1,7 @@
 package io.github.opencubicchunks.cubicchunks.server.level;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
+import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import net.minecraft.server.level.ChunkGenerationTask;
 import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerPlayer;
@@ -10,6 +11,8 @@ public interface CubicChunkMap {
     ChunkGenerationTask cc_scheduleGenerationTask(ChunkStatus chunkStatus, CubePos cubePos);
 
     void cc_onFullChunkStatusChange(CubePos cubePos, FullChunkStatus fullChunkStatus);
+
+    void cc_setCloUnsaved(CloPos cloPos);
 
     boolean cc_isChunkTracked(ServerPlayer player, int x, int y, int z);
 }
