@@ -22,6 +22,20 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-source-${{ github.sha }}
+          path: |
+            .
+            !.git/**
+            !build/**
+            !CubicChunksCore/build/**
+            !run/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
