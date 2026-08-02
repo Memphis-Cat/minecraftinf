@@ -15,7 +15,7 @@ diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cub
 index 34400c5..1111111 100644
 --- a/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/CubeAccess.java
 +++ b/src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/CubeAccess.java
-@@ -199,13 +199,36 @@ public abstract class CubeAccess implements CloAccess {
+@@ -199,13 +199,38 @@ public abstract class CubeAccess implements CloAccess {
      @Override public native void setAllReferences(Map<Structure, LongSet> structureReferencesMap);
  
      @Override public boolean isYSpaceEmpty(int startY, int endY) {
