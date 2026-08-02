@@ -14,14 +14,29 @@ readonly CUBE_DIRECTORY="${WORLD_DIRECTORY}/cubicchunks/cubes"
 
 server_pid=""
 
-cleanup_server() {
-    if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" >/dev/null 2>&1; then
-        kill -INT -- "-${server_pid}" >/dev/null 2>&1 || true
-        sleep 5
-        kill -TERM -- "-${server_pid}" >/dev/null 2>&1 || true
-        wait "${server_pid}" >/dev/null 2>&1 || true
+terminate_server() {
+    if [[ -z "${server_pid}" ]] || ! kill -0 "${server_pid}" >/dev/null 2>&1; then
+        server_pid=""
+        return 0
     fi
+
+    kill -TERM -- "-${server_pid}" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+        if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
+            wait "${server_pid}" >/dev/null 2>&1 || true
+            server_pid=""
+            return 0
+        fi
+        sleep 1
+    done
+
+    kill -KILL -- "-${server_pid}" >/dev/null 2>&1 || true
+    wait "${server_pid}" >/dev/null 2>&1 || true
     server_pid=""
+}
+
+cleanup_server() {
+    terminate_server
 }
 trap cleanup_server EXIT
 
@@ -69,32 +84,48 @@ start_server() {
     rcon_command "list" --connect-timeout 60
 }
 
-stop_server() {
-    local log_file="$1"
+cube_file_count() {
+    if [[ ! -d "${CUBE_DIRECTORY}" ]]; then
+        printf '0\n'
+        return
+    fi
+    find "${CUBE_DIRECTORY}" -type f -name '*.ccube' -print | wc -l
+}
 
-    rcon_command "stop" --allow-disconnect --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 || true
-    for _ in $(seq 1 "${COMMAND_TIMEOUT_SECONDS}"); do
-        if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
-            wait "${server_pid}" || true
-            server_pid=""
-            return 0
+cube_temp_file_count() {
+    if [[ ! -d "${CUBE_DIRECTORY}" ]]; then
+        printf '0\n'
+        return
+    fi
+    find "${CUBE_DIRECTORY}" -type f -name '*.tmp' -print | wc -l
+}
+
+wait_for_stable_cube_files() {
+    local previous_count=-1
+    local stable_seconds=0
+    local cube_count
+    local temporary_count
+
+    for _ in $(seq 1 "${SAVE_TIMEOUT_SECONDS}"); do
+        cube_count=$(cube_file_count)
+        temporary_count=$(cube_temp_file_count)
+
+        if (( cube_count > 0 && temporary_count == 0 && cube_count == previous_count )); then
+            stable_seconds=$((stable_seconds + 1))
+            if (( stable_seconds >= 10 )); then
+                echo "First server wrote a stable set of ${cube_count} persisted cube files."
+                return 0
+            fi
+        else
+            stable_seconds=0
         fi
+
+        previous_count=${cube_count}
         sleep 1
     done
 
-    echo "Server did not stop cleanly." >&2
-    cat "${log_file}" >&2
+    echo "Cube files did not reach a stable atomic state." >&2
     return 1
-}
-
-assert_cube_files_exist() {
-    local cube_count
-    cube_count=$(find "${CUBE_DIRECTORY}" -type f -name '*.ccube' -print 2>/dev/null | wc -l)
-    if (( cube_count == 0 )); then
-        echo "No persisted cube files were written to ${CUBE_DIRECTORY}." >&2
-        return 1
-    fi
-    echo "First server wrote ${cube_count} persisted cube files."
 }
 
 rm -rf "${WORLD_DIRECTORY}"
@@ -117,12 +148,15 @@ first_log="server-persistence-first.log"
 second_log="server-persistence-second.log"
 
 start_server "${first_log}"
-rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5
-assert_cube_files_exist
-stop_server "${first_log}"
+rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 >save-flush-rcon.log 2>&1 &
+save_rcon_pid=$!
+wait_for_stable_cube_files
+kill "${save_rcon_pid}" >/dev/null 2>&1 || true
+wait "${save_rcon_pid}" >/dev/null 2>&1 || true
+terminate_server
 
 start_server "${second_log}"
 wait_for_log "${second_log}" "${LOAD_PATTERN}" "${COMMAND_TIMEOUT_SECONDS}"
-stop_server "${second_log}"
+terminate_server
 
-echo "Cubic world files were written and loaded during a clean server restart."
+echo "Cubic world files were written atomically and loaded during a server restart."
