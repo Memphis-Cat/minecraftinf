@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.api.CubicConstants;
+import io.github.opencubicchunks.cubicchunks.CubicChunks;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.ImposterProtoCube;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import io.netty.buffer.ByteBuf;
@@ -94,6 +95,7 @@ public final class CubeStorage {
                     sections, null, null);
             cube.setLightCorrect(lightCorrect);
             cube.tryMarkSaved();
+            CubicChunks.LOGGER.info("Loaded persisted cube {}", expectedPos);
             return Optional.of(new ImposterProtoCube(cube, false));
         }
     }
