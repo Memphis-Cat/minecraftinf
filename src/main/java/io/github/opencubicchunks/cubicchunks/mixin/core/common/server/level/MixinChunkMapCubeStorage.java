@@ -40,7 +40,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class MixinChunkMapCubeStorage {
     @Shadow @Final private ServerLevel level;
 
-    @Unique private CubeStorage cc_cubeStorage;
+    @Unique
+    private CubeStorage cc_cubeStorage;
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void cc_initializeCubeStorage(
@@ -54,8 +55,7 @@ public abstract class MixinChunkMapCubeStorage {
         }
     }
 
-    @Dynamic
-    @Inject(method = "cc_save", at = @At("HEAD"), cancellable = true, require = 0)
+    @Dynamic @Inject(method = "cc_save", at = @At("HEAD"), cancellable = true, require = 0)
     private void cc_saveCube(CloAccess cloAccess, CallbackInfoReturnable<Boolean> cir) {
         LevelCube cube = cc_asLevelCube(cloAccess);
         if (cube == null) {
@@ -72,11 +72,7 @@ public abstract class MixinChunkMapCubeStorage {
         }
     }
 
-    @Dynamic
-    @Inject(
-            method = "cc_scheduleChunkLoad(Lio/github/opencubicchunks/cc_core/api/CubePos;)Ljava/util/concurrent/CompletableFuture;",
-            at = @At("HEAD"), cancellable = true, require = 0
-    )
+    @Dynamic @Inject(method = "cc_scheduleChunkLoad(Lio/github/opencubicchunks/cc_core/api/CubePos;)Ljava/util/concurrent/CompletableFuture;", at = @At("HEAD"), cancellable = true, require = 0)
     private void cc_loadCube(CubePos cubePos, CallbackInfoReturnable<CompletableFuture<CloAccess>> cir) {
         try {
             Optional<ImposterProtoCube> storedCube = cc_cubeStorage.load(level, cubePos);
