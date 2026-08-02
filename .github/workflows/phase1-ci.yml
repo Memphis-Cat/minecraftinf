@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -25,17 +25,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Apply staged production patch
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          if [[ -f .github/completion-large.patch ]]; then
-            git apply .github/completion-large.patch
-            rm .github/completion-large.patch
-            git show HEAD^:.github/workflows/phase1-ci.yml > .github/workflows/phase1-ci.yml
-            echo 'STAGED_PATCH_APPLIED=true' >> "$GITHUB_ENV"
-          fi
 
       - name: Upload source snapshot
         uses: actions/upload-artifact@v4
@@ -64,25 +53,11 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Format staged production patch
-        if: env.STAGED_PATCH_APPLIED == 'true'
-        run: ./gradlew spotlessApply --stacktrace --no-daemon
-
       - name: Run unit tests
         run: ./gradlew test --stacktrace --no-daemon
 
       - name: Run full checks
         run: ./gradlew check --stacktrace --no-daemon
-
-      - name: Commit validated production patch
-        if: env.STAGED_PATCH_APPLIED == 'true'
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Implement cube ticks, spawning, post-processing, and light routing"
-          git push origin HEAD:agent/cubicchunks3-phase1
 
       - name: Inspect Minecraft completion APIs
         if: always()
