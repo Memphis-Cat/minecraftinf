@@ -47,6 +47,20 @@ public final class CubeStorage {
         this.root = root;
     }
 
+    public synchronized boolean saveIfUnsaved(LevelCube cube) throws IOException {
+        if (!cube.tryMarkSaved()) {
+            return false;
+        }
+
+        try {
+            save(cube);
+            return true;
+        } catch (IOException | RuntimeException exception) {
+            cube.markUnsaved();
+            throw exception;
+        }
+    }
+
     public synchronized void save(LevelCube cube) throws IOException {
         CubePos cubePos = cube.cc_getCubePos();
         byte[] sectionData = serializeSections(cube);
