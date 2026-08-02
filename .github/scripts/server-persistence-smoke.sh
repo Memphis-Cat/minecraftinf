@@ -11,32 +11,102 @@ readonly RCON_PASSWORD='cubicchunks-phase1'
 readonly RCON_PORT=25575
 readonly WORLD_DIRECTORY='run/phase1-persistence-world'
 readonly CUBE_DIRECTORY="${WORLD_DIRECTORY}/cubicchunks/cubes"
+readonly WORKSPACE_ROOT="$(pwd -P)"
 
 server_pid=""
 
+workspace_java_pids() {
+    local process_path
+    local process_id
+    local executable
+    local command_line
+
+    for process_path in /proc/[0-9]*; do
+        process_id=${process_path##*/}
+        executable=$(readlink "${process_path}/exe" 2>/dev/null || true)
+        if [[ "${executable}" != */java ]]; then
+            continue
+        fi
+
+        command_line=$(tr '\0' ' ' < "${process_path}/cmdline" 2>/dev/null || true)
+        if [[ "${command_line}" == *"${WORKSPACE_ROOT}"* ]]; then
+            printf '%s\n' "${process_id}"
+        fi
+    done
+}
+
+wait_for_world_lock_release() {
+    local lock_file="${WORLD_DIRECTORY}/session.lock"
+
+    python3 - "${lock_file}" <<'PY'
+import fcntl
+import pathlib
+import sys
+import time
+
+lock_file = pathlib.Path(sys.argv[1])
+for _ in range(60):
+    if not lock_file.exists():
+        sys.exit(0)
+    try:
+        with lock_file.open("a+b") as handle:
+            fcntl.lockf(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.lockf(handle, fcntl.LOCK_UN)
+        sys.exit(0)
+    except BlockingIOError:
+        time.sleep(1)
+
+print(f"World lock remained held: {lock_file}", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
 terminate_server() {
-    if [[ -z "${server_pid}" ]] || ! kill -0 "${server_pid}" >/dev/null 2>&1; then
-        server_pid=""
-        return 0
+    local process_id
+    local remaining_pids
+
+    if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" >/dev/null 2>&1; then
+        kill -TERM -- "-${server_pid}" >/dev/null 2>&1 || true
     fi
 
-    kill -TERM -- "-${server_pid}" >/dev/null 2>&1 || true
-    for _ in $(seq 1 10); do
-        if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
-            wait "${server_pid}" >/dev/null 2>&1 || true
-            server_pid=""
+    for _ in $(seq 1 20); do
+        remaining_pids=$(workspace_java_pids || true)
+        if [[ -z "${remaining_pids}" ]]; then
+            break
+        fi
+
+        while read -r process_id; do
+            [[ -n "${process_id}" ]] && kill -TERM "${process_id}" >/dev/null 2>&1 || true
+        done <<< "${remaining_pids}"
+        sleep 1
+    done
+
+    remaining_pids=$(workspace_java_pids || true)
+    while read -r process_id; do
+        [[ -n "${process_id}" ]] && kill -KILL "${process_id}" >/dev/null 2>&1 || true
+    done <<< "${remaining_pids}"
+
+    if [[ -n "${server_pid}" ]]; then
+        kill -KILL -- "-${server_pid}" >/dev/null 2>&1 || true
+        wait "${server_pid}" >/dev/null 2>&1 || true
+    fi
+    server_pid=""
+
+    for _ in $(seq 1 20); do
+        remaining_pids=$(workspace_java_pids || true)
+        if [[ -z "${remaining_pids}" ]]; then
+            wait_for_world_lock_release
             return 0
         fi
         sleep 1
     done
 
-    kill -KILL -- "-${server_pid}" >/dev/null 2>&1 || true
-    wait "${server_pid}" >/dev/null 2>&1 || true
-    server_pid=""
+    echo "Workspace Java processes remained after forced termination: ${remaining_pids}" >&2
+    return 1
 }
 
 cleanup_server() {
-    terminate_server
+    terminate_server || true
 }
 trap cleanup_server EXIT
 
