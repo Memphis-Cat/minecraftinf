@@ -140,9 +140,7 @@ public class TestCubeAccess extends BaseTest {
     @Test
     public void testEmptySpaceQueries() {
         CubePos cubePos = CubePos.of(3, -4, 5);
-        var cubeAccess = new CubeAccessTestImpl(
-                cubePos, mock(), mock(), mock(), 0L, new LevelChunkSection[CubicConstants.SECTION_COUNT], mock()
-        );
+        var cubeAccess = new CubeAccessTestImpl(cubePos, mock(), mock(), mock(), 0L, new LevelChunkSection[CubicConstants.SECTION_COUNT], mock());
 
         int cubeMinY = cubePos.minCubeY();
         int cubeMaxY = cubePos.maxCubeY();
@@ -161,11 +159,7 @@ public class TestCubeAccess extends BaseTest {
         int occupiedLocalSectionY = CubicConstants.DIAMETER_IN_SECTIONS / 2;
         int occupiedSectionY = cubeMinSectionY + occupiedLocalSectionY;
         int occupiedLocalBlockY = occupiedLocalSectionY * SectionPos.SECTION_SIZE + 7;
-        BlockPos occupiedPos = cubePos.asBlockPos(
-                CubicConstants.DIAMETER_IN_BLOCKS - 1,
-                occupiedLocalBlockY,
-                CubicConstants.DIAMETER_IN_BLOCKS - 1
-        );
+        BlockPos occupiedPos = cubePos.asBlockPos(CubicConstants.DIAMETER_IN_BLOCKS - 1, occupiedLocalBlockY, CubicConstants.DIAMETER_IN_BLOCKS - 1);
         cubeAccess.setBlockState(occupiedPos, Blocks.STONE.defaultBlockState(), 3);
 
         int occupiedSectionMinY = SectionPos.sectionToBlockCoord(occupiedSectionY);
