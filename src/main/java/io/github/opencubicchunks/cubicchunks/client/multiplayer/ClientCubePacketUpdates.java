@@ -31,8 +31,6 @@ public final class ClientCubePacketUpdates {
     }
 
     public enum Result {
-        UPDATED,
-        OUT_OF_RANGE,
-        MISSING
+        UPDATED, OUT_OF_RANGE, MISSING
     }
 }
