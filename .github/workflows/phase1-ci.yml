@@ -9,58 +9,9 @@ on:
       - dev
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-save-all-loop-fix:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out development branch and submodules
-        uses: actions/checkout@v4
-        with:
-          ref: agent/cubicchunks3-phase1
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Check for staged save-loop patch
-        id: patch
-        shell: bash
-        run: |
-          if [[ -f patches/0005-fix-save-all-loop.patch ]]; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Java 21
-        if: steps.patch.outputs.present == 'true'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Apply and format save-loop fix
-        if: steps.patch.outputs.present == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git apply --check patches/0005-fix-save-all-loop.patch
-          git apply patches/0005-fix-save-all-loop.patch
-          ./gradlew spotlessApply --no-daemon
-
-      - name: Commit integrated source
-        if: steps.patch.outputs.present == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
-          git rm patches/0005-fix-save-all-loop.patch
-          git commit -m 'Stop repeated saves after cubes become clean'
-          git push origin HEAD:agent/cubicchunks3-phase1
-
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 60
