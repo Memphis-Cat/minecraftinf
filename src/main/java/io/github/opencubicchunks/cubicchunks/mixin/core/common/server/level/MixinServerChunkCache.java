@@ -87,14 +87,18 @@ public abstract class MixinServerChunkCache extends MixinChunkSource implements 
     private final List<LevelCube> cc_spawningCubes = new ObjectArrayList<>();
 
     @Shadow @Final public ServerLevel level;
+
     @Shadow protected abstract @Nullable ChunkHolder getVisibleChunkIfPresent(long pChunkPos);
+
     @Shadow @Final Thread mainThread;
     @Shadow @Final private ServerChunkCache.MainThreadExecutor mainThreadProcessor;
     @Shadow @Final private DistanceManager distanceManager;
     @Shadow @Final public ChunkMap chunkMap;
     @Shadow private long lastInhabitedUpdate;
     @Shadow private @Nullable NaturalSpawner.SpawnState lastSpawnState;
+
     @Shadow protected abstract void getFullChunk(long chunkPos, Consumer<LevelChunk> fullChunkGetter);
+
     @Shadow @Final private Set<ChunkHolder> chunkHoldersToBroadcast;
 
     @Inject(method = "<init>", at = @At("CTOR_HEAD"))
@@ -232,9 +236,8 @@ public abstract class MixinServerChunkCache extends MixinChunkSource implements 
     }
 
     @AddTransformToSets(ChunkToCloSet.ServerChunkCache_redirects.class)
-    @TransformFromMethod(useRedirectSets = ChunkToCloSet.class, owner = @Ref(ServerChunkCache.class),
-            value = "tickSpawningChunk(Lnet/minecraft/world/level/chunk/LevelChunk;JLjava/util/List;"
-                    + "Lnet/minecraft/world/level/NaturalSpawner$SpawnState;)V")
+    @TransformFromMethod(useRedirectSets = ChunkToCloSet.class, owner = @Ref(ServerChunkCache.class), value = "tickSpawningChunk(Lnet/minecraft/world/level/chunk/LevelChunk;JLjava/util/List;"
+            + "Lnet/minecraft/world/level/NaturalSpawner$SpawnState;)V")
     private native void cc_tickSpawningClo(
             LevelClo levelClo, long timeInhabited, List<MobCategory> spawnCategories, NaturalSpawner.SpawnState spawnState
     );
