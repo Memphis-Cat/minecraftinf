@@ -97,8 +97,10 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
         return load ? this.cc_emptyCube : null;
     }
 
-    @Override public void cc_replaceBiomes(int x, int y, int z, FriendlyByteBuf buffer) {
-        ClientCubePacketUpdates.Result result = ClientCubePacketUpdates.replaceBiomes(this.cc_cubeStorage, x, y, z, buffer);
+    @Override
+    public void cc_replaceBiomes(int x, int y, int z, FriendlyByteBuf buffer) {
+        ClientCubePacketUpdates.Result result =
+                ClientCubePacketUpdates.replaceBiomes(this.cc_cubeStorage, x, y, z, buffer);
         if (result == ClientCubePacketUpdates.Result.OUT_OF_RANGE) {
             LOGGER.warn("Ignoring cube since it's not in the view range: {}, {}, {}", x, y, z);
         } else if (result == ClientCubePacketUpdates.Result.MISSING) {
