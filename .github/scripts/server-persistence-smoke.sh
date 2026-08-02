@@ -4,10 +4,11 @@ set -euo pipefail
 readonly READY_PATTERN='Done \([0-9.]+s\)!|For help, type "help"'
 readonly COMMAND_TIMEOUT_SECONDS=120
 readonly STARTUP_TIMEOUT_SECONDS=360
+readonly RCON_CLIENT='.github/scripts/minecraft_rcon.py'
+readonly RCON_PASSWORD='cubicchunks-phase1'
+readonly RCON_PORT=25575
 
 server_pid=""
-server_fifo=""
-server_fd=3
 
 cleanup_server() {
     if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" >/dev/null 2>&1; then
@@ -16,12 +17,7 @@ cleanup_server() {
         kill -TERM -- "-${server_pid}" >/dev/null 2>&1 || true
         wait "${server_pid}" >/dev/null 2>&1 || true
     fi
-    exec 3>&- || true
-    if [[ -n "${server_fifo}" ]]; then
-        rm -f "${server_fifo}"
-    fi
     server_pid=""
-    server_fifo=""
 }
 trap cleanup_server EXIT
 
@@ -47,36 +43,36 @@ wait_for_log() {
     return 1
 }
 
+rcon_command() {
+    local command="$1"
+    shift
+    python3 "${RCON_CLIENT}" \
+        --host 127.0.0.1 \
+        --port "${RCON_PORT}" \
+        --password "${RCON_PASSWORD}" \
+        "$@" \
+        "${command}"
+}
+
 start_server() {
     local log_file="$1"
 
-    server_fifo="run/server-console.fifo"
-    rm -f "${server_fifo}"
-    mkfifo "${server_fifo}"
-    exec 3<>"${server_fifo}"
-
     : > "${log_file}"
-    setsid ./gradlew runServer --stacktrace --no-daemon <&3 >"${log_file}" 2>&1 &
+    setsid ./gradlew runServer --stacktrace --no-daemon </dev/null >"${log_file}" 2>&1 &
     server_pid=$!
 
     wait_for_log "${log_file}" "${READY_PATTERN}" "${STARTUP_TIMEOUT_SECONDS}"
-}
-
-send_command() {
-    printf '%s\n' "$1" >&3
+    rcon_command "list" --connect-timeout 60
 }
 
 stop_server() {
     local log_file="$1"
 
-    send_command "stop"
+    rcon_command "stop" --allow-disconnect --connect-timeout 10 || true
     for _ in $(seq 1 "${COMMAND_TIMEOUT_SECONDS}"); do
         if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
-            wait "${server_pid}"
+            wait "${server_pid}" || true
             server_pid=""
-            exec 3>&-
-            rm -f "${server_fifo}"
-            server_fifo=""
             return 0
         fi
         sleep 1
@@ -89,29 +85,33 @@ stop_server() {
 
 mkdir -p run
 printf 'eula=true\n' > run/eula.txt
-cat > run/server.properties <<'PROPERTIES'
+cat > run/server.properties <<PROPERTIES
 online-mode=false
 view-distance=2
 simulation-distance=2
 max-tick-time=-1
 level-name=phase1-persistence-world
 motd=CubicChunks3 Persistence Smoke Test
+enable-rcon=true
+broadcast-rcon-to-ops=false
+rcon.password=${RCON_PASSWORD}
+rcon.port=${RCON_PORT}
 PROPERTIES
 
 first_log="server-persistence-first.log"
 second_log="server-persistence-second.log"
 
 start_server "${first_log}"
-send_command "setblock 0 10 0 minecraft:diamond_block"
-send_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_PLACED"
+rcon_command "setblock 0 10 0 minecraft:diamond_block"
+rcon_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_PLACED"
 wait_for_log "${first_log}" "CC_BLOCK_PLACED" "${COMMAND_TIMEOUT_SECONDS}"
-send_command "save-all flush"
-send_command "say CC_SAVE_FLUSH_FINISHED"
+rcon_command "save-all flush"
+rcon_command "say CC_SAVE_FLUSH_FINISHED"
 wait_for_log "${first_log}" "CC_SAVE_FLUSH_FINISHED" "${COMMAND_TIMEOUT_SECONDS}"
 stop_server "${first_log}"
 
 start_server "${second_log}"
-send_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_RELOADED"
+rcon_command "execute if block 0 10 0 minecraft:diamond_block run say CC_BLOCK_RELOADED"
 wait_for_log "${second_log}" "CC_BLOCK_RELOADED" "${COMMAND_TIMEOUT_SECONDS}"
 stop_server "${second_log}"
 
