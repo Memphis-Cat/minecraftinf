@@ -15,6 +15,7 @@ import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeCache;
+import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubePacketUpdates;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.CubicClientLevel;
 import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.chunk.MixinChunkSource;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;
@@ -97,20 +98,11 @@ public abstract class MixinClientChunkCache extends MixinChunkSource implements 
     }
 
     @Override public void cc_replaceBiomes(int x, int y, int z, FriendlyByteBuf buffer) {
-        if (true) {
-            // TODO (P2)
-            throw new UnsupportedOperationException("don't remove this exception until packet integration tests are added for this method");
-        }
-        if (!this.cc_cubeStorage.inRange(x, y, z)) {
+        ClientCubePacketUpdates.Result result = ClientCubePacketUpdates.replaceBiomes(this.cc_cubeStorage, x, y, z, buffer);
+        if (result == ClientCubePacketUpdates.Result.OUT_OF_RANGE) {
             LOGGER.warn("Ignoring cube since it's not in the view range: {}, {}, {}", x, y, z);
-        } else {
-            int i = this.cc_cubeStorage.getIndex(x, y, z);
-            LevelCube levelCube = this.cc_cubeStorage.chunks.get(i);
-            if (!cc_isValidCube(levelCube, x, y, z)) {
-                LOGGER.warn("Ignoring cube since it's not present: {}, {}, {}", x, y, z);
-            } else {
-                levelCube.replaceBiomes(buffer);
-            }
+        } else if (result == ClientCubePacketUpdates.Result.MISSING) {
+            LOGGER.warn("Ignoring cube since it's not present: {}, {}, {}", x, y, z);
         }
     }
 
