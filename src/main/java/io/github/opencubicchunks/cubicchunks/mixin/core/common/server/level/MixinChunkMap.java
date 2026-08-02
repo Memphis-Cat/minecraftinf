@@ -451,15 +451,15 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "save(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z")
     private boolean cc_save(CloAccess cloAccess) {
         LevelCube cube = cc_asLevelCube(cloAccess);
-        if (cube == null) {
+        if (cube == null || !cube.tryMarkSaved()) {
             return false;
         }
 
         try {
             cc_cubeStorage.save(cube);
-            cube.tryMarkSaved();
             return true;
         } catch (Exception exception) {
+            cube.markUnsaved();
             CubicChunks.LOGGER.error("Failed to save cube {}", cube.cc_getCubePos(), exception);
             return false;
         }
