@@ -27,7 +27,8 @@ public abstract class MixinClientLevel extends MixinLevel implements CubicClient
     @Shadow @Final private TransientEntitySectionManager<Entity> entityStorage;
     @Shadow @Final private Object2ObjectArrayMap<ColorResolver, BlockTintCache> tintCaches;
 
-    @Unique private final Long2IntOpenHashMap cc_loadedCubeColumns = new Long2IntOpenHashMap();
+    @Unique
+    private final Long2IntOpenHashMap cc_loadedCubeColumns = new Long2IntOpenHashMap();
 
     @Override public boolean cc_hasCube(int cubeX, int cubeY, int cubeZ) {
         return ClientCubeAvailability.hasCube((ClientCubeCache) this.chunkSource, cubeX, cubeY, cubeZ);
