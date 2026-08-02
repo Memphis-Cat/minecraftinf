@@ -6,8 +6,7 @@ import net.minecraft.world.phys.Vec3;
 
 /** Coordinate calculations shared by cubic {@code ChunkMap} paths. */
 public final class CubeMapMath {
-    private CubeMapMath() {
-    }
+    private CubeMapMath() {}
 
     /** Returns the squared distance between a point and the center of a cube. */
     public static double euclideanDistanceSquared(CloPos cubePos, Vec3 point) {
