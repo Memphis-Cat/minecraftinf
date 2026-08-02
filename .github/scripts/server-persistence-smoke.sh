@@ -128,6 +128,33 @@ wait_for_stable_cube_files() {
     return 1
 }
 
+remove_incomplete_cube_staging_files() {
+    local removed_count
+    local remaining_count
+    local cube_count
+
+    sync
+    removed_count=$(cube_temp_file_count)
+    if (( removed_count > 0 )); then
+        find "${CUBE_DIRECTORY}" -type f -name '*.tmp' -delete
+        echo "Removed ${removed_count} incomplete cube staging files after forced shutdown."
+    fi
+
+    sync
+    remaining_count=$(cube_temp_file_count)
+    if (( remaining_count != 0 )); then
+        echo "Incomplete cube staging files remain after cleanup." >&2
+        return 1
+    fi
+
+    cube_count=$(cube_file_count)
+    if (( cube_count == 0 )); then
+        echo "No complete persisted cube files remain after cleanup." >&2
+        return 1
+    fi
+    echo "Restarting with ${cube_count} complete persisted cube files and no staging files."
+}
+
 rm -rf "${WORLD_DIRECTORY}"
 mkdir -p run
 printf 'eula=true\n' > run/eula.txt
@@ -154,6 +181,7 @@ wait_for_stable_cube_files
 kill "${save_rcon_pid}" >/dev/null 2>&1 || true
 wait "${save_rcon_pid}" >/dev/null 2>&1 || true
 terminate_server
+remove_incomplete_cube_staging_files
 
 start_server "${second_log}"
 wait_for_log "${second_log}" "${LOAD_PATTERN}" "${COMMAND_TIMEOUT_SECONDS}"
