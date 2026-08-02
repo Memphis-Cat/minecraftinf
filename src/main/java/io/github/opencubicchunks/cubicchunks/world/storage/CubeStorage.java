@@ -29,9 +29,10 @@ import net.minecraft.world.ticks.LevelChunkTicks;
 
 /**
  * Minimal versioned persistence for full cubes.
- *
- * <p>This is the Phase 1 storage baseline. It deliberately stores one palette payload per cube so save/reload behavior can be verified before
- * RegionLib batching, block entities, ticks, lighting, structures and heightmaps are added.</p>
+ * <p>
+ * This is the Phase 1 storage baseline. It deliberately stores one palette payload per cube so save/reload behavior can be verified before
+ * RegionLib batching, block entities, ticks, lighting, structures and heightmaps are added.
+ * </p>
  */
 public final class CubeStorage {
     private static final int MAGIC = 0x43435542; // CCUB
