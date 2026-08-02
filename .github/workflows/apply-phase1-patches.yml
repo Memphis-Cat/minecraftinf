@@ -1,0 +1,53 @@
+name: Apply Phase 1 patches
+
+on:
+  push:
+    branches:
+      - agent/cubicchunks3-phase1
+    paths:
+      - patches/**
+      - .github/workflows/apply-phase1-patches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out development branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/cubicchunks3-phase1
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply unapplied patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed=0
+          shopt -s nullglob
+          for patch in patches/*.patch; do
+            if git apply --reverse --check "$patch" >/dev/null 2>&1; then
+              echo "Already applied: $patch"
+            elif git apply --check "$patch"; then
+              git apply "$patch"
+              changed=1
+            else
+              echo "Patch cannot be applied cleanly: $patch" >&2
+              exit 1
+            fi
+          done
+
+          if [[ "$changed" -eq 0 ]]; then
+            echo "No source changes were needed."
+            exit 0
+          fi
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main src/test
+          git commit -m "Implement cube emptiness queries"
+          git push origin HEAD:agent/cubicchunks3-phase1
