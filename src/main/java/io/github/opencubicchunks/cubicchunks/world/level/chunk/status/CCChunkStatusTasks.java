@@ -19,12 +19,14 @@ import net.minecraft.world.level.storage.ValueInput;
 
 /**
  * Equivalent of {@link ChunkStatusTasks} for chunks in cubic worlds.
- *
- * <p>Vanilla columns remain authoritative for terrain-generation metadata. Cubes project the
+ * <p>
+ * Vanilla columns remain authoritative for terrain-generation metadata. Cubes project the
  * generated sections into sparse three-dimensional storage instead of maintaining a second
- * terrain generator.</p>
- *
- * <p>See also {@link CubeStatusTasks} for the cube projection tasks.</p>
+ * terrain generator.
+ * </p>
+ * <p>
+ * See also {@link CubeStatusTasks} for the cube projection tasks.
+ * </p>
  */
 @Dasm(ChunkInCubicContextSet.class)
 public final class CCChunkStatusTasks {
