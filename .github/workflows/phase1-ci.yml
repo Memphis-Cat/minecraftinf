@@ -27,16 +27,146 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Apply staged runtime completion patch
+      - name: Apply exact runtime completion edits
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f .github/runtime-completion.patch ]]; then
-            echo 'No staged patch exists; nothing to apply.' >&2
-            exit 1
-          fi
-          git apply --check .github/runtime-completion.patch
-          git apply .github/runtime-completion.patch
+          test -f .github/runtime-completion.patch
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one source block in {path}, found {text.count(old)}")
+              file.write_text(text.replace(old, new))
+
+          replace_once(
+              "src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java",
+              '''    @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
+              @TransformFromMethod("setChunkUnsaved(Lnet/minecraft/world/level/ChunkPos;)V")
+              private native void cc_setCloUnsaved(CloPos cloPos);
+          ''',
+              '''    @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
+              @TransformFromMethod("setChunkUnsaved(Lnet/minecraft/world/level/ChunkPos;)V")
+              @Override public native void cc_setCloUnsaved(CloPos cloPos);
+          ''',
+          )
+
+          Path("src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/world/level/cube/status/MixinCubeStatusTasks.java").write_text('''package io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.cube.status;
+
+          import com.llamalad7.mixinextras.sugar.Local;
+          import io.github.opencubicchunks.cc_core.api.CubePos;
+          import io.github.opencubicchunks.cc_core.world.level.CloPos;
+          import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
+          import io.github.opencubicchunks.cubicchunks.util.StaticCache3D;
+          import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
+          import io.github.opencubicchunks.cubicchunks.world.level.cube.status.CubeStatusTasks;
+          import net.minecraft.world.level.chunk.status.WorldGenContext;
+          import org.spongepowered.asm.mixin.Dynamic;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.injection.At;
+          import org.spongepowered.asm.mixin.injection.Redirect;
+
+          @Mixin(CubeStatusTasks.class)
+          public class MixinCubeStatusTasks {
+              @Dynamic @Redirect(method = "full", at = @At(value = "INVOKE", target = "Lio/github/opencubicchunks/cubicchunks/util/StaticCache3D;get(II)Ljava/lang/Object;"))
+              private static Object onFullCube_cacheGet(StaticCache3D<?> instance, int x, int z, @Local(ordinal = 0) CubePos cubePos) {
+                  return instance.get(x, cubePos.getY(), z);
+              }
+
+              @Dynamic @Redirect(method = "dasm$redirect$lambda$full$2", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/chunk/status/WorldGenContext;unsavedListener()Lio/github/opencubicchunks/cubicchunks/world/level/cube/LevelCube$UnsavedListener;"))
+              private static LevelCube.UnsavedListener onFullCube_worldGenContext_unsavedListener(WorldGenContext instance) {
+                  CubicChunkMap chunkMap = (CubicChunkMap) instance.level().getChunkSource().chunkMap;
+                  return cubePos -> chunkMap.cc_setCloUnsaved(CloPos.cube(cubePos));
+              }
+          }
+          ''')
+
+          level_cube = "src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/LevelCube.java"
+          replace_once(
+              level_cube,
+              "import net.minecraft.world.level.block.EntityBlock;\n",
+              "import net.minecraft.world.level.block.EntityBlock;\nimport net.minecraft.world.level.block.LiquidBlock;\n",
+          )
+          replace_once(
+              level_cube,
+              '''    // TODO P2 or P3 figure this out later - stub method for now
+              public void postProcessGeneration(ServerLevel serverLevel) {
+                  for (int i = 0; i < this.postProcessing.length; ++i) {
+                      if (this.postProcessing[i] != null) {
+                          this.postProcessing[i].clear();
+                      }
+                  }
+
+                  for (BlockPos blockpos1 : ImmutableList.copyOf(this.pendingBlockEntities.keySet())) {
+                      this.getBlockEntity(blockpos1);
+                  }
+
+                  this.pendingBlockEntities.clear();
+              }
+          ''',
+              '''    public void postProcessGeneration(ServerLevel serverLevel) {
+                  for (int sectionIndex = 0; sectionIndex < this.postProcessing.length; ++sectionIndex) {
+                      if (this.postProcessing[sectionIndex] == null) {
+                          continue;
+                      }
+
+                      int sectionX = Coords.cubeToSection(this.cubePos.getX(), Coords.indexToX(sectionIndex));
+                      int sectionY = Coords.cubeToSection(this.cubePos.getY(), Coords.indexToY(sectionIndex));
+                      int sectionZ = Coords.cubeToSection(this.cubePos.getZ(), Coords.indexToZ(sectionIndex));
+                      for (short packedPosition : this.postProcessing[sectionIndex]) {
+                          int localX = packedPosition & SectionPos.SECTION_MASK;
+                          int localY = packedPosition >> 4 & SectionPos.SECTION_MASK;
+                          int localZ = packedPosition >> 8 & SectionPos.SECTION_MASK;
+                          BlockPos blockPos = new BlockPos(
+                                  SectionPos.sectionToBlockCoord(sectionX, localX),
+                                  SectionPos.sectionToBlockCoord(sectionY, localY),
+                                  SectionPos.sectionToBlockCoord(sectionZ, localZ));
+                          BlockState blockState = this.getBlockState(blockPos);
+                          FluidState fluidState = blockState.getFluidState();
+                          if (!fluidState.isEmpty()) {
+                              fluidState.tick(serverLevel, blockPos, blockState);
+                          }
+                          if (!(blockState.getBlock() instanceof LiquidBlock)) {
+                              BlockState updatedState = Block.updateFromNeighbourShapes(blockState, serverLevel, blockPos);
+                              if (updatedState != blockState) {
+                                  serverLevel.setBlock(blockPos, updatedState, 276);
+                              }
+                          }
+                      }
+                      this.postProcessing[sectionIndex].clear();
+                  }
+
+                  for (BlockPos blockPos : ImmutableList.copyOf(this.pendingBlockEntities.keySet())) {
+                      this.getBlockEntity(blockPos);
+                  }
+                  this.pendingBlockEntities.clear();
+              }
+          ''',
+          )
+          replace_once(
+              level_cube,
+              '''    // TODO (P2 or P3) ticks are disabled for now; stub methods as placeholders
+          //    @TransformFromMethod(value = @MethodSig("registerTickContainerInLevel(Lnet/minecraft/server/level/ServerLevel;)V"), owner = @Ref(LevelChunk
+          //    .class))
+          //    public native void registerTickContainerInLevel(ServerLevel level);
+              public void registerTickContainerInLevel(ServerLevel level) {}
+
+              // @TransformFromMethod(value = @MethodSig("unregisterTickContainerFromLevel(Lnet/minecraft/server/level/ServerLevel;)V"), owner = @Ref
+              // (LevelChunk.class))
+          //    public native void unregisterTickContainerFromLevel(ServerLevel level);
+              public void unregisterTickContainerFromLevel(ServerLevel level) {}
+          ''',
+              '''    @TransformFromMethod(value = "registerTickContainerInLevel(Lnet/minecraft/server/level/ServerLevel;)V", owner = @Ref(LevelChunk.class))
+              public native void registerTickContainerInLevel(ServerLevel level);
+
+              @TransformFromMethod(value = "unregisterTickContainerFromLevel(Lnet/minecraft/server/level/ServerLevel;)V", owner = @Ref(LevelChunk.class))
+              public native void unregisterTickContainerFromLevel(ServerLevel level);
+          ''',
+          )
+          PY
           rm .github/runtime-completion.patch
           git show HEAD^:.github/workflows/phase1-ci.yml > .github/workflows/phase1-ci.yml
 
@@ -53,7 +183,7 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Format production patch
+      - name: Format production edits
         run: ./gradlew spotlessApply --stacktrace --no-daemon
 
       - name: Run unit tests
