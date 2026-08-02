@@ -34,8 +34,7 @@ public class TestClientCubePacketUpdates {
         ClientCubeCache.Storage storage = new ClientCubeCache.Storage(1, mock(ClientLevel.class));
         FriendlyByteBuf buffer = mock(FriendlyByteBuf.class);
         LevelCube wrongCube = mock(LevelCube.class);
-        when(wrongCube.cc_getCubePos())
-                .thenReturn(CubePos.of(0, 0, 0));
+        when(wrongCube.cc_getCubePos()).thenReturn(CubePos.of(0, 0, 0));
         storage.replace(storage.getIndex(1, 0, 0), wrongCube);
 
         assertEquals(ClientCubePacketUpdates.Result.MISSING, ClientCubePacketUpdates.replaceBiomes(storage, 1, 0, 0, buffer));
