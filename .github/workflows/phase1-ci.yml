@@ -133,3 +133,39 @@ jobs:
             run/logs/
             run/crash-reports/
           if-no-files-found: ignore
+
+  persistence-smoke:
+    needs: server-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Run cubic save and reload test
+        shell: bash
+        run: bash .github/scripts/server-persistence-smoke.sh
+
+      - name: Upload persistence logs and world metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-persistence-smoke-logs
+          path: |
+            server-persistence-first.log
+            server-persistence-second.log
+            run/logs/
+            run/crash-reports/
+            run/phase1-persistence-world/level.dat
+            run/phase1-persistence-world/level.dat_old
+          if-no-files-found: ignore
