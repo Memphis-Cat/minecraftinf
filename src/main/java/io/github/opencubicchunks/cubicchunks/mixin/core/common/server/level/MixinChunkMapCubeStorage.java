@@ -6,7 +6,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
 import com.mojang.datafixers.DataFixer;
-import io.github.opencubicchunks.cc_core.api.CubePos;
+import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.CubicChunks;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.CloAccess;
@@ -72,13 +72,17 @@ public abstract class MixinChunkMapCubeStorage {
         }
     }
 
-    @Dynamic @Inject(method = "cc_scheduleChunkLoad(Lio/github/opencubicchunks/cc_core/api/CubePos;)Ljava/util/concurrent/CompletableFuture;", at = @At("HEAD"), cancellable = true, require = 0)
-    private void cc_loadCube(CubePos cubePos, CallbackInfoReturnable<CompletableFuture<CloAccess>> cir) {
+    @Dynamic @Inject(method = "cc_scheduleChunkLoad(Lio/github/opencubicchunks/cc_core/world/level/CloPos;)Ljava/util/concurrent/CompletableFuture;", at = @At("HEAD"), cancellable = true, require = 0)
+    private void cc_loadCube(CloPos cloPos, CallbackInfoReturnable<CompletableFuture<CloAccess>> cir) {
+        if (!cloPos.isCube()) {
+            return;
+        }
+
         try {
-            Optional<ImposterProtoCube> storedCube = cc_cubeStorage.load(level, cubePos);
+            Optional<ImposterProtoCube> storedCube = cc_cubeStorage.load(level, cloPos.cubePos());
             storedCube.ifPresent(cube -> cir.setReturnValue(CompletableFuture.completedFuture(cube)));
         } catch (Exception exception) {
-            CubicChunks.LOGGER.error("Failed to load cube {}", cubePos, exception);
+            CubicChunks.LOGGER.error("Failed to load cube {}", cloPos, exception);
         }
     }
 
