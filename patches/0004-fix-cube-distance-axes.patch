@@ -1,7 +1,6 @@
-diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
 --- a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
 +++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
-@@ -42,6 +42,7 @@ import io.github.opencubicchunks.cubicchunks.server.level.CloGenerationTask;
+@@ -43,6 +43,7 @@
  import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
  import io.github.opencubicchunks.cubicchunks.server.level.CloTrackingView;
  import io.github.opencubicchunks.cubicchunks.server.level.CubeHolder;
@@ -9,7 +8,7 @@ diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/comm
  import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
  import io.github.opencubicchunks.cubicchunks.server.level.GeneratingCubeMap;
  import io.github.opencubicchunks.cubicchunks.server.level.progress.CloProgressListener;
-@@ -153,14 +154,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+@@ -154,13 +155,7 @@
              return euclideanDistanceSquared(cloPos.chunkPos(), vec3);
  //            throw new UnsupportedOperationException("Should not call euclideanDistanceSquared with a chunk position");
          }
@@ -22,3 +21,5 @@ diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/comm
 -        return dx * dx + dy * dy + dz * dz;
 +        return CubeMapMath.euclideanDistanceSquared(cloPos, vec3);
      }
+ 
+     // TODO make vanilla isChunkTracked/isChunkOnTrackedBorder fail in cubic world
