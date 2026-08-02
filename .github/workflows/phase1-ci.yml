@@ -55,6 +55,19 @@ jobs:
       - name: Run full checks
         run: ./gradlew check --stacktrace --no-daemon
 
+      - name: Inspect Minecraft storage APIs
+        shell: bash
+        run: bash .github/scripts/inspect-minecraft-storage.sh
+
+      - name: Upload Minecraft storage API inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-minecraft-storage-api
+          path: build/minecraft-storage-inspection/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
