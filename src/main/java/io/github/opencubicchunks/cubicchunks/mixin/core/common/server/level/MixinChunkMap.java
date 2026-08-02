@@ -43,6 +43,7 @@ import io.github.opencubicchunks.cubicchunks.server.level.CloGenerationTask;
 import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.CloTrackingView;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeHolder;
+import io.github.opencubicchunks.cubicchunks.server.level.CubeMapMath;
 import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
 import io.github.opencubicchunks.cubicchunks.server.level.GeneratingCubeMap;
 import io.github.opencubicchunks.cubicchunks.server.level.progress.CloProgressListener;
@@ -154,13 +155,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
             return euclideanDistanceSquared(cloPos.chunkPos(), vec3);
 //            throw new UnsupportedOperationException("Should not call euclideanDistanceSquared with a chunk position");
         }
-        double cubeCenterX = Coords.cubeToCenterBlock(cloPos.getX());
-        double cubeCenterY = Coords.cubeToCenterBlock(cloPos.getX());
-        double cubeCenterZ = Coords.cubeToCenterBlock(cloPos.getX());
-        double dx = cubeCenterX - vec3.x();
-        double dy = cubeCenterY - vec3.y();
-        double dz = cubeCenterZ - vec3.z();
-        return dx * dx + dy * dy + dz * dz;
+        return CubeMapMath.euclideanDistanceSquared(cloPos, vec3);
     }
 
     // TODO make vanilla isChunkTracked/isChunkOnTrackedBorder fail in cubic world
