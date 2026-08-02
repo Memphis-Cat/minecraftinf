@@ -195,4 +195,5 @@ jobs:
             run/crash-reports/
             run/phase1-persistence-world/level.dat
             run/phase1-persistence-world/level.dat_old
+            run/phase1-persistence-world/cubicchunks/**
           if-no-files-found: ignore
