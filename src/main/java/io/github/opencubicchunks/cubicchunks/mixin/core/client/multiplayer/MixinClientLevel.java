@@ -1,6 +1,7 @@
 package io.github.opencubicchunks.cubicchunks.mixin.core.client.multiplayer;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
+import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeAvailability;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeCache;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.CubicClientLevel;
 import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.MixinLevel;
@@ -15,7 +16,7 @@ public abstract class MixinClientLevel extends MixinLevel implements CubicClient
     @Shadow @Final private ClientChunkCache chunkSource;
 
     @Override public boolean cc_hasCube(int cubeX, int cubeY, int cubeZ) {
-        return true;
+        return ClientCubeAvailability.hasCube((ClientCubeCache) this.chunkSource, cubeX, cubeY, cubeZ);
     }
 
     // TODO should eventually be DASM once BlockTintCache and entity storage are actually done in CC
