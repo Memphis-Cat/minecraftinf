@@ -109,18 +109,6 @@ terminate_server() {
         wait "${server_pid}" >/dev/null 2>&1 || true
     fi
     server_pid=""
-
-    for _ in $(seq 1 20); do
-        remaining_pids=$(workspace_java_pids || true)
-        if [[ -z "${remaining_pids}" ]]; then
-            wait_for_world_lock_release
-            return 0
-        fi
-        sleep 1
-    done
-
-    echo "Workspace Java processes remained after forced termination: ${remaining_pids}" >&2
-    return 1
 }
 
 cleanup_server() {
@@ -172,75 +160,44 @@ start_server() {
     rcon_command "list" --connect-timeout 60
 }
 
-cube_file_count() {
-    if [[ ! -d "${CUBE_DIRECTORY}" ]]; then
-        printf '0\n'
-        return
-    fi
-    find "${CUBE_DIRECTORY}" -type f -name '*.ccube' -print | wc -l
-}
+stop_server_cleanly() {
+    local log_file="$1"
+    local remaining_pids
 
-cube_temp_file_count() {
-    if [[ ! -d "${CUBE_DIRECTORY}" ]]; then
-        printf '0\n'
-        return
-    fi
-    find "${CUBE_DIRECTORY}" -type f -name '*.tmp' -print | wc -l
-}
-
-wait_for_stable_cube_files() {
-    local previous_count=-1
-    local stable_seconds=0
-    local cube_count
-    local temporary_count
-
-    for _ in $(seq 1 "${SAVE_TIMEOUT_SECONDS}"); do
-        cube_count=$(cube_file_count)
-        temporary_count=$(cube_temp_file_count)
-
-        if (( cube_count > 0 && temporary_count == 0 && cube_count == previous_count )); then
-            stable_seconds=$((stable_seconds + 1))
-            if (( stable_seconds >= 10 )); then
-                echo "First server wrote a stable set of ${cube_count} persisted cube files."
-                return 0
+    rcon_command "stop" --allow-disconnect --timeout "${COMMAND_TIMEOUT_SECONDS}" --connect-timeout 5 || true
+    for _ in $(seq 1 "${COMMAND_TIMEOUT_SECONDS}"); do
+        remaining_pids=$(workspace_java_pids || true)
+        if [[ -z "${remaining_pids}" ]]; then
+            if [[ -n "${server_pid}" ]]; then
+                wait "${server_pid}" >/dev/null 2>&1 || true
             fi
-        else
-            stable_seconds=0
+            server_pid=""
+            wait_for_world_lock_release
+            return 0
         fi
-
-        previous_count=${cube_count}
         sleep 1
     done
 
-    echo "Cube files did not reach a stable atomic state." >&2
+    echo "Server did not stop cleanly after the RCON stop command." >&2
+    cat "${log_file}" >&2
     return 1
 }
 
-remove_incomplete_cube_staging_files() {
-    local removed_count
-    local remaining_count
+assert_complete_cube_files_exist() {
     local cube_count
+    local temporary_count
 
-    sync
-    removed_count=$(cube_temp_file_count)
-    if (( removed_count > 0 )); then
-        find "${CUBE_DIRECTORY}" -type f -name '*.tmp' -delete
-        echo "Removed ${removed_count} incomplete cube staging files after forced shutdown."
-    fi
-
-    sync
-    remaining_count=$(cube_temp_file_count)
-    if (( remaining_count != 0 )); then
-        echo "Incomplete cube staging files remain after cleanup." >&2
-        return 1
-    fi
-
-    cube_count=$(cube_file_count)
+    cube_count=$(find "${CUBE_DIRECTORY}" -type f -name '*.ccube' -print 2>/dev/null | wc -l)
+    temporary_count=$(find "${CUBE_DIRECTORY}" -type f -name '*.tmp' -print 2>/dev/null | wc -l)
     if (( cube_count == 0 )); then
-        echo "No complete persisted cube files remain after cleanup." >&2
+        echo "No complete persisted cube files were written." >&2
         return 1
     fi
-    echo "Restarting with ${cube_count} complete persisted cube files and no staging files."
+    if (( temporary_count != 0 )); then
+        echo "Found ${temporary_count} incomplete cube staging files after flush." >&2
+        return 1
+    fi
+    echo "Flush completed with ${cube_count} complete persisted cube files."
 }
 
 rm -rf "${WORLD_DIRECTORY}"
@@ -263,17 +220,18 @@ first_log="server-persistence-first.log"
 second_log="server-persistence-second.log"
 
 start_server "${first_log}"
-rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 >save-flush-rcon.log 2>&1 &
-save_rcon_pid=$!
-wait_for_stable_cube_files
-capture_save_flush_thread_dumps
-kill "${save_rcon_pid}" >/dev/null 2>&1 || true
-wait "${save_rcon_pid}" >/dev/null 2>&1 || true
-terminate_server
-remove_incomplete_cube_staging_files
+if ! rcon_command "save-all flush" --timeout "${SAVE_TIMEOUT_SECONDS}" --connect-timeout 5 >save-flush-rcon.log 2>&1; then
+    capture_save_flush_thread_dumps
+    echo "save-all flush did not return normally." >&2
+    exit 1
+fi
+assert_complete_cube_files_exist
+rcon_command "say CC_SAVE_FLUSH_FINISHED"
+wait_for_log "${first_log}" "CC_SAVE_FLUSH_FINISHED" "${COMMAND_TIMEOUT_SECONDS}"
+stop_server_cleanly "${first_log}"
 
 start_server "${second_log}"
 wait_for_log "${second_log}" "${LOAD_PATTERN}" "${COMMAND_TIMEOUT_SECONDS}"
-terminate_server
+stop_server_cleanly "${second_log}"
 
-echo "Cubic world files were written atomically and loaded during a server restart."
+echo "Cubic save-all flush returned, both servers stopped cleanly, and persisted cubes loaded after restart."
