@@ -4,7 +4,6 @@ plugins {
     id 'net.fabricmc.fabric-loom' version "${loom_version}"
     id 'com.diffplug.spotless' version '7.0.4'
     id 'checkstyle'
-    id('io.github.opencubicchunks.javaheaders').version('1.2.8')
     id('io.github.opencubicchunks.gradle.mixingen')
     id('io.github.opencubicchunks.gradle.dasmgen')
 }
@@ -25,11 +24,6 @@ java {
 
 tasks.withType(JavaCompile).configureEach {
     options.release = 25
-}
-
-javaHeaders {
-    setAcceptedJars('.*CubicChunksCore.*')
-    setConfig(file('javaHeaders.json'))
 }
 
 sourceSets {
@@ -97,26 +91,12 @@ repositories {
     maven { url = 'https://jitpack.io' }
 }
 
-def javaHeadersLinked = org.gradle.api.attributes.Attribute.of('javaHeadersLinked', Boolean)
-
 configurations {
     libraries
     implementation.extendsFrom libraries
-    cubicCoreHeaders {
-        canBeConsumed = false
-        canBeResolved = true
-        attributes.attribute(javaHeadersLinked, true)
-    }
 }
 
-// javaheaders 1.2.8 opts every resolvable configuration into its artifact
-// transform. Loom's Minecraft 26.2 artifacts must remain untouched; only the
-// CubicChunksCore header jar is eligible for the redirect transform.
-configurations.configureEach {
-    if (canBeResolved && name != 'cubicCoreHeaders') {
-        attributes.attribute(javaHeadersLinked, false)
-    }
-}
+def linkedCoreJar = file("${buildDir}/fabric-header-libs/CubicChunksCore-linked.jar")
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
@@ -125,12 +105,8 @@ dependencies {
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     implementation "io.github.llamalad7:mixinextras-fabric:${mixinextras_version}"
 
-    cubicCoreHeaders(project(':CubicChunksCore')) {
-        attributes {
-            attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, LibraryElements.JAR))
-        }
-        transitive = false
-    }
+    implementation files(linkedCoreJar)
+    include files(linkedCoreJar)
 
     compileOnly 'io.github.notstirred:dasm:3.2.0:api'
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
@@ -145,11 +121,9 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-sourceSets.main.compileClasspath += configurations.cubicCoreHeaders
-sourceSets.main.runtimeClasspath += configurations.cubicCoreHeaders
-
 tasks.register('printMainCompileClasspath') {
     group = 'verification'
+    dependsOn ':headerLinker:linkCoreHeaders'
     doLast {
         sourceSets.main.compileClasspath.files.toList().sort().each { println it }
     }
@@ -170,8 +144,8 @@ tasks.register('genAll') {
 }
 
 sourceSets.main.resources.srcDir 'src/generated/resources'
-processResources.dependsOn tasks.named('genAll'), ':CubicChunksCore:assemble'
-compileJava.dependsOn ':CubicChunksCore:assemble'
+processResources.dependsOn tasks.named('genAll'), ':headerLinker:linkCoreHeaders'
+compileJava.dependsOn ':headerLinker:linkCoreHeaders'
 
 processResources {
     inputs.property 'version', project.version
