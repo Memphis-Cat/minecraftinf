@@ -17,9 +17,9 @@ permissions:
   contents: read
 
 jobs:
-  compile:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Check out repository and submodules
         uses: actions/checkout@v4
@@ -48,6 +48,42 @@ jobs:
       - name: Build Fabric jar
         run: ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
 
+      - name: Start Fabric dedicated server
+        run: |
+          set -euo pipefail
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          cat > run/server.properties <<'PROPERTIES'
+          online-mode=false
+          view-distance=2
+          simulation-distance=2
+          max-tick-time=-1
+          level-name=fabric-26-2-smoke-world
+          motd=CubicChunks Fabric 26.2 Smoke Test
+          PROPERTIES
+          : > fabric-server.log
+          setsid ./gradlew runServer --stacktrace --no-daemon >fabric-server.log 2>&1 &
+          process_group=$!
+          cleanup() {
+            kill -INT -- "-$process_group" >/dev/null 2>&1 || true
+            sleep 3
+            kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
+            wait "$process_group" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 360); do
+            if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' fabric-server.log; then
+              exit 0
+            fi
+            if ! kill -0 "$process_group" >/dev/null 2>&1; then
+              cat fabric-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          cat fabric-server.log
+          exit 1
+
       - name: Upload Fabric port diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,7 +92,10 @@ jobs:
           path: |
             fabric-compile.log
             fabric-build.log
+            fabric-server.log
             build/reports/
             build/libs/
+            run/logs/
+            run/crash-reports/
           if-no-files-found: ignore
           retention-days: 7
