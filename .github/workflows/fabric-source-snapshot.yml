@@ -12,6 +12,8 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   snapshot:
@@ -39,3 +41,33 @@ jobs:
           name: fabric-port-source
           path: fabric-port-source.tar.gz
           retention-days: 2
+
+      - name: Report snapshot run on pull request 2
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- cubicchunks-fabric-source-snapshot -->';
+            const body = `${marker}\nFabric source snapshot run: \`${context.runId}\`  \nHead: \`${context.sha}\``;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 2,
+              per_page: 100
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 2,
+                body
+              });
+            }
