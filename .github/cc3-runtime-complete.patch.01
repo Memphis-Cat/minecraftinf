@@ -11,7 +11,7 @@ nkMap extends MixinChunkStorage implements Generat
  
      @Shadow @Final private static CompletableFuture<ChunkResult<List<CloAccess>>> UNLOADED_CHUNK_LIST_FUTURE;
      @Shadow @Final private static ChunkResult<List<CloAccess>> UNLOADED_CHUNK_LIST_RESULT;
-@@ -320,8 +335,50 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+@@ -320,8 +335,51 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
      private native void cc_saveClosEagerly(BooleanSupplier hasMoreTime);
  
      @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "scheduleUnload(JLnet/minecraft/server/level/ChunkHolder;)V")
@@ -65,7 +65,7 @@ nkMap extends MixinChunkStorage implements Generat
      }
  
      // region [cc_scheduleChunkLoad dasm + mixin]
-@@ -351,8 +408,22 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+@@ -351,8 +409,22 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
      @Dynamic @Redirect(method = "cc_scheduleChunkLoad", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/ai/village/poi/PoiManager;prefetch(Lio/github/opencubicchunks/cc_core/world/level/CloPos;)"
              + "Ljava/util/concurrent/CompletableFuture;"))
      private CompletableFuture<?> cc_onScheduleChunkLoad_poiManagerPreFetch(PoiManager instance, CloPos cloPos
