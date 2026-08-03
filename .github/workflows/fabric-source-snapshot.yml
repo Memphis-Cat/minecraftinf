@@ -33,7 +33,8 @@ jobs:
             --exclude=.gradle \
             --exclude='**/build' \
             --exclude='**/.gradle' \
-            -czf fabric-port-source.tar.gz .
+            -czf "$RUNNER_TEMP/fabric-port-source.tar.gz" .
+          mv "$RUNNER_TEMP/fabric-port-source.tar.gz" fabric-port-source.tar.gz
 
       - name: Upload source snapshot
         uses: actions/upload-artifact@v4
