@@ -63,10 +63,19 @@ mixinGen {
 }
 
 loom {
-    // Fabric Loader applies cubicchunks.accesswidener from fabric.mod.json at runtime.
-    // Loom's 26.2 processed-jar path currently copies only the resources artifact
-    // when a local compile-time widener is configured, so source access is expressed
-    // through mixin accessors/invokers instead of mutating the compile Minecraft jar.
+    // Minecraft 26.2 is already distributed in its public namespace. Loom's
+    // processed named-jar path currently collapses this project's compile jar
+    // to the resources-only side when any game-jar processor is registered.
+    // Keep the unmodified 10k+ class distribution for compilation. Fabric
+    // Loader still applies cubicchunks.accesswidener from fabric.mod.json at
+    // runtime, while source-only visibility is handled with mixin accessors.
+    enableTransitiveAccessWideners = false
+    enableModProvidedJavadoc = false
+    interfaceInjection {
+        isEnabled = false
+        enableDependencyInterfaceInjection = false
+    }
+
     runs {
         client {
             client()
@@ -139,6 +148,9 @@ tasks.register('printMainCompileClasspath') {
     dependsOn requireLinkedCore
     doLast {
         println "loom.disableObfuscation=${loom.disableObfuscation()}"
+        println "loom.enableTransitiveAccessWideners=${loom.enableTransitiveAccessWideners.get()}"
+        println "loom.enableModProvidedJavadoc=${loom.enableModProvidedJavadoc.get()}"
+        println "loom.interfaceInjection=${loom.interfaceInjection.isEnabled()}"
         sourceSets.main.compileClasspath.files.toList().sort().each { println it }
     }
 }
