@@ -61,6 +61,13 @@ jobs:
           distribution: temurin
           java-version: '25'
 
+      - name: Link CubicChunksCore outside the Loom build
+        run: |
+          set -euo pipefail
+          chmod +x .github/link-cubic-core.sh
+          .github/link-cubic-core.sh 2>&1 | tee fabric-core-link.log
+          test -s build/fabric-header-libs/CubicChunksCore-linked.jar
+
       - name: Purge stale Loom snapshots
         run: |
           rm -rf .gradle/loom-cache
@@ -90,6 +97,9 @@ jobs:
             classes="$(unzip -Z1 "$jar_path" 2>/dev/null | grep -c '\.class$' || true)"
             printf '%s entries=%s classes=%s %s\n' "$size" "$entries" "$classes" "$jar_path"
           done | sort -n | tee fabric-minecraft-classes.log
+          minecraft_jar="$(find .gradle/loom-cache/minecraftMaven -type f -name 'minecraft-merged-*.jar' -print -quit)"
+          test -n "$minecraft_jar"
+          test "$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')" -gt 10000
 
       - name: Compile Fabric 26.2 sources
         run: |
@@ -176,6 +186,7 @@ jobs:
           path: |
             fabric-minecraft-distribution.log
             fabric-core-build.log
+            fabric-core-link.log
             fabric-standalone-loom-probe.log
             fabric-standalone-loom-jars.log
             fabric-classpath.log
