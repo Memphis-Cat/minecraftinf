@@ -11,12 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  validate-integrate:
+  diagnose-persistence-shutdown:
     runs-on: ubuntu-latest
-    timeout-minutes: 95
+    timeout-minutes: 25
     steps:
       - name: Check out feature branch and submodules
         uses: actions/checkout@v4
@@ -32,72 +32,23 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
-
-      - name: Apply ProtoCube unload and storage concurrency fixes
+      - name: Apply validated runtime fixes and diagnostics
         run: |
           set -euo pipefail
           chmod +x gradlew
-          echo "BRANCH_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           python .github/cc3-protocube-unload.patch
+          python .github/cc3-stop-diagnostic.py
+          ./gradlew spotlessApply --stacktrace --no-daemon
 
-      - name: Format source
-        run: ./gradlew spotlessApply --stacktrace --no-daemon
-
-      - name: Run CubicChunksCore tests
-        run: ./gradlew :CubicChunksCore:test --stacktrace --no-daemon
-
-      - name: Run runtime unit tests
-        run: >-
-          ./gradlew test
-          --tests 'io.github.opencubicchunks.cubicchunks.test.*'
-          --tests 'io.github.opencubicchunks.cubicchunks.world.level.cube.status.TestCubeColumnBridge'
-          --stacktrace --no-daemon
-
-      - name: Run ServerCubeCache integration tests
-        run: >-
-          ./gradlew test
-          --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache'
-          --stacktrace --no-daemon
-
-      - name: Run bounded ChunkMap integration tests
-        run: >-
-          ./gradlew test
-          --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap'
-          --stacktrace --no-daemon
-
-      - name: Run formatting and static checks
-        run: ./gradlew check -x test --stacktrace --no-daemon
-
-      - name: Run dedicated-server save, stop, restart, and reload test
+      - name: Reproduce save, stop, restart, and reload path
         run: bash .github/scripts/server-persistence-smoke.sh
 
-      - name: Commit validated source
-        run: |
-          set -euo pipefail
-          git fetch origin agent/cubicchunks3-phase1
-          if [ "$(git rev-parse origin/agent/cubicchunks3-phase1)" != "$BRANCH_START" ]; then
-            echo "Feature branch moved during validation; refusing to overwrite it."
-            exit 1
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/cc3-protocube-unload.patch
-          git add -A
-          git commit -m "Make cube unload persistence thread-safe"
-          git push origin HEAD:agent/cubicchunks3-phase1
-
-      - name: Upload validation reports
+      - name: Upload shutdown diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase1-protocube-unload-validation
+          name: phase1-shutdown-diagnostics
           path: |
-            build/reports/
-            build/test-results/
-            CubicChunksCore/build/reports/
-            CubicChunksCore/build/test-results/
             server-persistence-first.log
             server-persistence-second.log
             save-flush-rcon.log
