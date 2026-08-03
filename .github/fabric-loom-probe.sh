@@ -70,12 +70,25 @@ public final class Probe {
 }
 JAVA
 
-"$probe_dir/gradlew" -p "$probe_dir" inspectMinecraft compileJava --stacktrace --no-daemon 2>&1 | tee fabric-standalone-loom-probe.log
+"$probe_dir/gradlew" -p "$probe_dir" inspectMinecraft --stacktrace --no-daemon 2>&1 | tee fabric-standalone-loom-probe.log
 
+: > fabric-standalone-loom-jars.log
 find "$probe_dir/.gradle/loom-cache" -type f -name '*.jar' -print0 2>/dev/null |
 while IFS= read -r -d '' jar_path; do
     size="$(stat -c '%s' "$jar_path")"
     entries="$(unzip -Z1 "$jar_path" 2>/dev/null | wc -l || true)"
     classes="$(unzip -Z1 "$jar_path" 2>/dev/null | grep -c '\.class$' || true)"
     printf '%s entries=%s classes=%s %s\n' "$size" "$entries" "$classes" "$jar_path"
-done | sort -n | tee fabric-standalone-loom-jars.log
+    if [[ "$jar_path" == *minecraft-merged*.jar ]]; then
+        echo "--- first entries: $jar_path ---"
+        unzip -Z1 "$jar_path" | head -n 300 || true
+        echo "--- representative classes: $jar_path ---"
+        unzip -Z1 "$jar_path" | grep -E '(^|/)(BlockPos|Identifier|ResourceLocation|Level|ChunkAccess|StreamCodec|FriendlyByteBuf|CustomPacketPayload|SharedConstants)\.class$' | sort | head -n 300 || true
+    fi
+done | tee -a fabric-standalone-loom-jars.log
+
+set +e
+"$probe_dir/gradlew" -p "$probe_dir" compileJava --stacktrace --no-daemon 2>&1 | tee -a fabric-standalone-loom-probe.log
+probe_status=${PIPESTATUS[0]}
+set -e
+printf 'Standalone compile status: %s\n' "$probe_status" | tee -a fabric-standalone-loom-probe.log
