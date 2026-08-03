@@ -14,9 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-persistence-shutdown:
+  persistence-shutdown:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out feature branch and submodules
         uses: actions/checkout@v4
@@ -32,22 +32,22 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Apply validated runtime fixes and diagnostics
+      - name: Apply runtime persistence fixes
         run: |
           set -euo pipefail
           chmod +x gradlew
           python .github/cc3-protocube-unload.patch
-          python .github/cc3-stop-diagnostic.py
+          python .github/cc3-shutdown-drain.py
           ./gradlew spotlessApply --stacktrace --no-daemon
 
-      - name: Reproduce save, stop, restart, and reload path
+      - name: Run save, stop, restart, and reload gate
         run: bash .github/scripts/server-persistence-smoke.sh
 
-      - name: Upload shutdown diagnostics
+      - name: Upload persistence diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase1-shutdown-diagnostics
+          name: phase1-persistence-shutdown-validation
           path: |
             server-persistence-first.log
             server-persistence-second.log
