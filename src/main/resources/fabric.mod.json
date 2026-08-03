@@ -17,6 +17,9 @@
   "entrypoints": {
     "main": [
       "io.github.opencubicchunks.cubicchunks.CubicChunks"
+    ],
+    "client": [
+      "io.github.opencubicchunks.cubicchunks.network.CCClientNetworkHandler"
     ]
   },
   "mixins": [
@@ -31,7 +34,6 @@
     "fabric-api": ">=0.156.0"
   },
   "custom": {
-    "cubicchunks:dasm": "cubicchunks.dasm.json",
-    "cubicchunks:portStatus": "bootstrap"
+    "cubicchunks:dasm": "cubicchunks.dasm.json"
   }
 }
