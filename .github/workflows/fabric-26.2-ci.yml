@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - agent/cubicchunks3-fabric-26.2
+  pull_request:
+    branches:
+      - dev
   workflow_dispatch:
 
 concurrency:
-  group: cubicchunks3-fabric-26.2
+  group: cubicchunks3-fabric-26.2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -33,6 +36,9 @@ jobs:
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
+
+      - name: Migrate custom generators to Gradle 9
+        run: python .github/fabric-gradle9-migrate.py
 
       - name: Compile Fabric 26.2 sources
         run: |
