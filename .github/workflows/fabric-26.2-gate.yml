@@ -1,0 +1,208 @@
+name: CubicChunks3 Fabric 26.2 Gate
+
+on:
+  pull_request:
+    branches:
+      - dev
+
+concurrency:
+  group: cubicchunks3-fabric-26.2-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-validate-integrate:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/cubicchunks3-fabric-26.2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Fabric port and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Apply deterministic Minecraft 26.2 migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BRANCH_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          python .github/inspect-minecraft-distribution.py
+          python .github/fabric-gradle9-migrate.py
+          python .github/fabric-api26-source-migrate.py
+          python .github/fabric-api26-finalize.py
+          python .github/fabric-api26-finalize.py
+          chmod +x gradlew .github/link-cubic-core.sh
+
+      - name: Set up Java 17 for CubicChunksCore
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build and test CubicChunksCore
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x CubicChunksCore/gradlew
+          ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-core.log
+          test -s CubicChunksCore/build/libs/CubicChunksCore.jar
+
+      - name: Restore Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Link core and prepare Minecraft headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          .github/link-cubic-core.sh 2>&1 | tee fabric-link.log
+          ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
+          test -s build/fabric-header-libs/CubicChunksCore-linked.jar
+          test -s build/fabric-header-libs/minecraft-client-access-widened.jar
+
+      - name: Compile runtime and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew compileJava compileTestJava --stacktrace --no-daemon 2>&1 | tee fabric-compile.log
+
+      - name: Run Fabric port tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew test --stacktrace --no-daemon 2>&1 | tee fabric-test.log
+
+      - name: Build distributable Fabric jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
+          jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -s "$jar_path"
+          jar tf "$jar_path" | sort > fabric-jar.txt
+          grep -q '^fabric.mod.json$' fabric-jar.txt
+          grep -q '^cubicchunks.accesswidener$' fabric-jar.txt
+          grep -q '^io/github/opencubicchunks/cubicchunks/CubicChunks.class$' fabric-jar.txt
+
+      - name: Start stop restart and reload dedicated server
+        shell: bash
+        run: |
+          set -euo pipefail
+          world='fabric-26-2-final-world'
+          rm -rf "run/$world"
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          cat > run/server.properties <<PROPERTIES
+          online-mode=false
+          enable-rcon=true
+          rcon.password=cubicchunks-ci
+          rcon.port=25579
+          view-distance=2
+          simulation-distance=2
+          max-tick-time=-1
+          level-name=$world
+          motd=CubicChunks Fabric 26.2 Final Gate
+          PROPERTIES
+
+          run_server() {
+            local log_file="$1"
+            : > "$log_file"
+            setsid ./gradlew runServer --stacktrace --no-daemon </dev/null >"$log_file" 2>&1 &
+            local group=$!
+            for _ in $(seq 1 420); do
+              if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' "$log_file"; then
+                python .github/scripts/minecraft_rcon.py --host 127.0.0.1 --port 25579 --password cubicchunks-ci save-all flush
+                python .github/scripts/minecraft_rcon.py --host 127.0.0.1 --port 25579 --password cubicchunks-ci stop
+                for _ in $(seq 1 180); do
+                  if ! kill -0 "$group" >/dev/null 2>&1; then
+                    wait "$group" >/dev/null 2>&1 || true
+                    grep -Eq 'Saved the game|All dimensions are saved|ThreadedAnvilChunkStorage.*saved|Stopping server' "$log_file"
+                    return 0
+                  fi
+                  sleep 1
+                done
+                cat "$log_file"
+                kill -TERM -- "-$group" >/dev/null 2>&1 || true
+                wait "$group" >/dev/null 2>&1 || true
+                return 1
+              fi
+              if ! kill -0 "$group" >/dev/null 2>&1; then
+                cat "$log_file"
+                wait "$group" || true
+                return 1
+              fi
+              sleep 1
+            done
+            cat "$log_file"
+            kill -TERM -- "-$group" >/dev/null 2>&1 || true
+            wait "$group" >/dev/null 2>&1 || true
+            return 1
+          }
+
+          run_server fabric-server-first.log
+          test -d "run/$world"
+          find "run/$world" -type f -print | sort > fabric-world-first.txt
+          test -s fabric-world-first.txt
+          cp fabric-world-first.txt fabric-world-before-restart.txt
+          run_server fabric-server-second.log
+          find "run/$world" -type f -print | sort > fabric-world-second.txt
+          test -s fabric-world-second.txt
+          comm -23 fabric-world-before-restart.txt fabric-world-second.txt > fabric-world-missing-after-restart.txt
+          test ! -s fabric-world-missing-after-restart.txt
+          ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-server-first.log
+          ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-server-second.log
+
+      - name: Commit fully validated migrated runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.event.pull_request.head.ref }}"
+          if [[ "$(git rev-parse origin/${{ github.event.pull_request.head.ref }})" != "$BRANCH_START" ]]; then
+            echo 'Fabric branch moved during validation; refusing to overwrite it.'
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add build.gradle src/main/java src/main/resources .github/widen-minecraft-headers.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'The branch already contains the validated Minecraft 26.2 migration.'
+            exit 0
+          fi
+          git commit -m 'Complete Minecraft 26.2 API migration'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
+      - name: Upload Fabric completion diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-26.2-final-gate
+          path: |
+            fabric-*.log
+            fabric-*.txt
+            build/reports/
+            build/test-results/
+            build/libs/
+            run/logs/
+            run/crash-reports/
+            run/fabric-26-2-final-world/cubicchunks/**
+          if-no-files-found: ignore
+          retention-days: 7
