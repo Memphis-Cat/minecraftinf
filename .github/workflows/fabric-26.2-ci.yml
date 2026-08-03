@@ -80,10 +80,13 @@ jobs:
             echo "Manifest:"
             unzip -p "$minecraft_jar" META-INF/MANIFEST.MF || true
             echo
+            echo "First class entries in the jar:"
+            jar tf "$minecraft_jar" | grep '\.class$' | head -n 300 || true
+            echo
             echo "Representative matching entries:"
             jar tf "$minecraft_jar" | grep -E '(^|/)(BlockPos|Identifier|ResourceLocation|Level|ChunkAccess|StreamCodec|FriendlyByteBuf|CustomPacketPayload)\.class$' | sort | head -n 300 || true
             echo
-            echo "First Minecraft class entries:"
+            echo "First net/minecraft class entries:"
             jar tf "$minecraft_jar" | grep '^net/minecraft/.*\.class$' | sort | head -n 300 || true
             echo
             echo "Direct entry probes:"
@@ -149,6 +152,16 @@ jobs:
           cat fabric-server.log
           exit 1
 
+      - name: Create exact source snapshot
+        if: always()
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=.gradle \
+            --exclude='**/build' \
+            --exclude='**/.gradle' \
+            -czf fabric-port-source.tar.gz .
+
       - name: Upload Fabric port diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -161,6 +174,7 @@ jobs:
             fabric-compile.log
             fabric-build.log
             fabric-server.log
+            fabric-port-source.tar.gz
             build/reports/
             build/libs/
             run/logs/
