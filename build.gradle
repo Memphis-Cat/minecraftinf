@@ -63,12 +63,11 @@ mixinGen {
 }
 
 loom {
-    // Minecraft 26.2 is already distributed in its public namespace. Loom's
-    // processed named-jar path currently collapses this project's compile jar
-    // to the resources-only side when any game-jar processor is registered.
-    // Keep the unmodified 10k+ class distribution for compilation. Fabric
-    // Loader still applies cubicchunks.accesswidener from fabric.mod.json at
-    // runtime, while source-only visibility is handled with mixin accessors.
+    // Minecraft 26.2 is already distributed in its public namespace. The
+    // current Loom 1.17 merged-deobf artifact for this multi-project build is
+    // resources-only, while Mojang's verified client distribution contains all
+    // 10,952 public game classes. Compilation therefore adds the raw public
+    // client jar below, without changing Loom's run or packaging model.
     enableTransitiveAccessWideners = false
     enableModProvidedJavadoc = false
     interfaceInjection {
@@ -109,6 +108,8 @@ configurations {
 }
 
 def linkedCoreJar = file("${buildDir}/fabric-header-libs/CubicChunksCore-linked.jar")
+def loomMinecraftCache = new File(gradle.gradleUserHomeDir, "caches/fabric-loom/${minecraft_version}")
+def rawMinecraftClientJar = new File(loomMinecraftCache, 'minecraft-client.jar')
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
@@ -119,6 +120,11 @@ dependencies {
 
     implementation files(linkedCoreJar)
     include files(linkedCoreJar)
+
+    // Mojang ships 26.2 unobfuscated. This verified client jar contains both
+    // common/server and client symbols and is used only to restore javac's game
+    // classes while Loom's merged-deobf regression is isolated.
+    compileOnly files(rawMinecraftClientJar)
 
     compileOnly 'io.github.notstirred:dasm:3.2.0:api'
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
@@ -143,9 +149,27 @@ def requireLinkedCore = tasks.register('requireLinkedCore') {
     }
 }
 
+def requireRawMinecraftClient = tasks.register('requireRawMinecraftClient') {
+    group = 'verification'
+    description = 'Verifies that Loom downloaded Mojang\'s unobfuscated Minecraft 26.2 client distribution.'
+    doLast {
+        if (!rawMinecraftClientJar.isFile() || rawMinecraftClientJar.length() < 30_000_000L) {
+            throw new GradleException("Missing complete Minecraft ${minecraft_version} client jar at ${rawMinecraftClientJar}")
+        }
+        def classCount = 0
+        new java.util.jar.JarFile(rawMinecraftClientJar).withCloseable { jar ->
+            classCount = jar.entries().findAll { it.name.endsWith('.class') }.size()
+        }
+        if (classCount < 10_000) {
+            throw new GradleException("Minecraft ${minecraft_version} client jar contains only ${classCount} classes")
+        }
+        println "Using raw Minecraft ${minecraft_version} compile jar with ${classCount} classes: ${rawMinecraftClientJar}"
+    }
+}
+
 tasks.register('printMainCompileClasspath') {
     group = 'verification'
-    dependsOn requireLinkedCore
+    dependsOn requireLinkedCore, requireRawMinecraftClient
     doLast {
         println "loom.disableObfuscation=${loom.disableObfuscation()}"
         println "loom.enableTransitiveAccessWideners=${loom.enableTransitiveAccessWideners.get()}"
@@ -171,7 +195,7 @@ tasks.register('genAll') {
 
 sourceSets.main.resources.srcDir 'src/generated/resources'
 processResources.dependsOn tasks.named('genAll'), requireLinkedCore
-compileJava.dependsOn requireLinkedCore
+compileJava.dependsOn requireLinkedCore, requireRawMinecraftClient
 
 processResources {
     inputs.property 'version', project.version
