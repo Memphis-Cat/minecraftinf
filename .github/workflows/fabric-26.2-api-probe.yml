@@ -16,7 +16,7 @@ permissions:
 jobs:
   storage-api:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,10 +28,11 @@ jobs:
           java-version: '17'
 
       - name: Build CubicChunksCore
+        shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           chmod +x CubicChunksCore/gradlew
-          ./CubicChunksCore/gradlew -p CubicChunksCore assemble --no-daemon
+          ./CubicChunksCore/gradlew -p CubicChunksCore assemble --stacktrace --no-daemon 2>&1 | tee fabric-26.2-api-probe.log
 
       - uses: actions/setup-java@v4
         with:
@@ -39,25 +40,33 @@ jobs:
           java-version: '25'
 
       - name: Resolve named Minecraft 26.2 jar
+        shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           chmod +x gradlew .github/link-cubic-core.sh
-          python .github/fabric-gradle9-migrate.py
-          python .github/fabric-api26-source-migrate.py
-          python .github/fabric-api26-finalize.py
-          .github/link-cubic-core.sh
-          ./gradlew --refresh-dependencies printMainCompileClasspath --no-daemon
-
-      - name: Extract storage API signatures
-        run: |
-          set -euo pipefail
-          jar="$HOME/.gradle/caches/fabric-loom/26.2/minecraft-client.jar"
-          test -s "$jar"
           {
-            echo '=== storage classes ==='
-            jar tf "$jar" | grep '^net/minecraft/world/level/chunk/storage/.*\.class$' | sort
+            python .github/fabric-gradle9-migrate.py
+            python .github/fabric-api26-source-migrate.py
+            python .github/fabric-api26-finalize.py
+            .github/link-cubic-core.sh
+            ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon
+          } 2>&1 | tee -a fabric-26.2-api-probe.log
+
+      - name: Extract public API signatures
+        shell: bash
+        run: |
+          set -o pipefail
+          jar="$HOME/.gradle/caches/fabric-loom/26.2/minecraft-client.jar"
+          {
+            echo "jar=$jar"
+            ls -l "$jar"
+            echo
+            echo '=== relevant classes ==='
+            jar tf "$jar" | grep -E '^(net/minecraft/resources/ResourceKey|net/minecraft/world/level/ChunkPos|net/minecraft/world/level/chunk/storage/.*)\.class$' | sort
             echo
             for class in \
+              net.minecraft.resources.ResourceKey \
+              net.minecraft.world.level.ChunkPos \
               net.minecraft.world.level.chunk.storage.ChunkStorage \
               net.minecraft.world.level.chunk.storage.IOWorker \
               net.minecraft.world.level.chunk.storage.RegionFileStorage \
@@ -71,21 +80,25 @@ jobs:
               fi
               echo
             done
-          } > fabric-26.2-storage-api.txt
-          cat fabric-26.2-storage-api.txt
+          } 2>&1 | tee fabric-26.2-storage-api.txt
 
-      - name: Report storage API on PR 2
+      - name: Report API probe on PR 2
         if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const marker = '<!-- cubicchunks-fabric-26.2-api-probe -->';
-            let output = fs.existsSync('fabric-26.2-storage-api.txt')
-              ? fs.readFileSync('fabric-26.2-storage-api.txt', 'utf8')
-              : 'The API probe failed before producing storage signatures.';
-            if (output.length > 58000) output = output.slice(0, 58000) + '\n[truncated]';
-            const body = `${marker}\n## Minecraft 26.2 storage API probe\n\n\`\`\`text\n${output}\n\`\`\``;
+            const files = ['fabric-26.2-api-probe.log', 'fabric-26.2-storage-api.txt'];
+            let output = '';
+            for (const file of files) {
+              if (!fs.existsSync(file)) continue;
+              const text = fs.readFileSync(file, 'utf8');
+              output += `=== ${file} ===\n${text.slice(-30000)}\n\n`;
+            }
+            if (!output) output = 'The API probe failed before creating a diagnostic log.';
+            if (output.length > 59000) output = output.slice(-59000);
+            const body = `${marker}\n## Minecraft 26.2 API probe\n\n\`\`\`text\n${output}\n\`\`\``;
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -94,24 +107,16 @@ jobs:
             });
             const existing = comments.find(comment => comment.body && comment.body.includes(marker));
             if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body
-              });
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: 2,
-                body
-              });
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: 2, body });
             }
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fabric-26.2-storage-api
-          path: fabric-26.2-storage-api.txt
+          name: fabric-26.2-api-probe
+          path: |
+            fabric-26.2-api-probe.log
+            fabric-26.2-storage-api.txt
           if-no-files-found: ignore
