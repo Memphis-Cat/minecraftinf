@@ -70,16 +70,8 @@ jobs:
           ./gradlew --refresh-dependencies genSources printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-dev-bundle.log
 
           cache_roots=("$HOME/.gradle/caches/fabric-loom" ".gradle/loom-cache")
-          minecraft_jar=''
-          while IFS= read -r candidate; do
-            class_count="$(unzip -Z1 "$candidate" 2>/dev/null | grep -c '\.class$' || true)"
-            if (( class_count > 10000 )); then
-              minecraft_jar="$candidate"
-              break
-            fi
-          done < <(find "${cache_roots[@]}" -type f \( -name 'minecraft-merged-deobf-*.jar' -o -name 'minecraft-merged-*.jar' \) -print 2>/dev/null | sort -u)
-
-          test -n "$minecraft_jar"
+          minecraft_jar="$HOME/.gradle/caches/fabric-loom/26.2/minecraft-client.jar"
+          test -s "$minecraft_jar"
           test "$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')" -gt 10000
 
           bundle_dir='fabric-26.2-dev-files'
@@ -100,7 +92,7 @@ jobs:
           copy_with_manifest "$minecraft_jar" "$bundle_dir/minecraft"
           while IFS= read -r source_path; do
             copy_with_manifest "$source_path" "$bundle_dir/minecraft"
-          done < <(find "${cache_roots[@]}" -type f \( -name '*sources*.jar' -o -name '*.tiny' \) -print 2>/dev/null | sort -u)
+          done < <(find "${cache_roots[@]}" -type f \( -name '*sources*.jar' -o -name '*source*.jar' -o -name '*.tiny' \) -print 2>/dev/null | sort -u)
 
           copy_with_manifest build/fabric-header-libs/CubicChunksCore-linked.jar "$bundle_dir/core"
           copy_with_manifest CubicChunksCore/build/libs/CubicChunksCore.jar "$bundle_dir/core"
