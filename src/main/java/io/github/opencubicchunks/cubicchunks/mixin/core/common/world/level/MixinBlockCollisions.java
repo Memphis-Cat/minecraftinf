@@ -35,10 +35,9 @@ public class MixinBlockCollisions {
             CollisionGetter collisionGetter, CollisionContext context, AABB box, boolean onlySuffocatingBlocks, BiFunction resultProvider,
             CallbackInfo ci
     ) {
-        // TODO probably don't cast without an instanceof check in production - for dev it's fine since it will tell us we're missing something
-        if (((CanBeCubic) collisionGetter).cc_isCubic()) {
-            cc_isCubic = true;
-        }
+        // World-generation views such as WorldGenRegion are valid CollisionGetters but are not
+        // themselves cubic levels. Keep the original chunk-backed collision path for them.
+        this.cc_isCubic = collisionGetter instanceof CanBeCubic canBeCubic && canBeCubic.cc_isCubic();
     }
 
     private @Nullable BlockGetter cc_getCube(int x, int y, int z) {
