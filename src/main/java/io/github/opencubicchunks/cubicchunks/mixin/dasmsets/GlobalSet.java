@@ -31,13 +31,10 @@ import net.minecraft.world.level.entity.ChunkStatusUpdateListener;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 
 /**
- * Contains redirects that are applied to all DASM transforms. <br/>
- * <br/>
- * Redirects should only be added to this set if they are applicable in all
- * contexts.
+ * Contains redirects that are applied to all DASM transforms.
  */
 @RedirectSet
-public interface GlobalSet extends ForgeSet {
+public interface GlobalSet {
     @IntraOwnerContainer(@Ref(ChunkStatus.class))
     abstract class ChunkStatus_redirects {
         @MethodRedirect("generate(Ljava/util/concurrent/Executor;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/ChunkGenerator;"
