@@ -1,160 +1,224 @@
-diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
---- a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
-+++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
-@@ -153,7 +153,8 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
-             cc_progressListener = ((CloProgressListener) progressListener);
-             cc_cloStatusListener = CloStatusUpdates.adapt(chunkStatusListener);
-             ((MarkableAsCubic) distanceManager).cc_setCubic();
--            cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"));
-+            cc_cubeStorage =
-+                    new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"), level);
-         }
-     }
- 
-@@ -349,11 +350,15 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
-             }
- 
-             CloPos cloPos = cloAccess.cc_getCloPos();
--            if (cloAccess instanceof LevelCube levelCube) {
--                levelCube.setLoaded(false);
--                this.cc_save(levelCube);
--                ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
--            } else {
-+            if (cloPos.isCube()) {
-+                if (cloAccess instanceof LevelCube levelCube) {
-+                    levelCube.setLoaded(false);
-+                }
-+                this.cc_save(cloAccess);
-+                if (cloAccess instanceof LevelCube levelCube) {
-+                    ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
-+                }
-+            } else {
-                 ChunkAccess chunkAccess = (ChunkAccess) cloAccess;
-                 net.neoforged.neoforge.common.CommonHooks.onChunkUnload(this.poiManager, chunkAccess);
-                 this.chunkTypeCache.remove(chunkAccess.getPos().toLong());
-diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java b/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
---- a/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
-+++ b/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
-@@ -67,10 +67,14 @@ public final class CubeStorage {
-     private static final int REGION_SHIFT = 5;
- 
-     private final Path root;
-+    private final Registry<Structure> structureRegistry;
-+    private final StructurePieceSerializationContext structureContext;
- 
--    public CubeStorage(Path root) {
-+    public CubeStorage(Path root, ServerLevel level) {
-         this.root = root;
-+        this.structureRegistry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
-+        this.structureContext = StructurePieceSerializationContext.fromLevel(level);
-     }
- 
-     public synchronized boolean saveIfUnsaved(LevelCube cube) throws IOException {
-@@ -275,18 +279,16 @@ public final class CubeStorage {
-         return ticks;
-     }
- 
--    private static void writeStructures(DataOutputStream output, LevelCube cube, ServerLevel level) throws IOException {
--        Registry<Structure> registry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
--        StructurePieceSerializationContext context = StructurePieceSerializationContext.fromLevel(level);
-+    private void writeStructures(DataOutputStream output, LevelCube cube, ServerLevel level) throws IOException {
-         Map<Structure, StructureStart> starts = cube.getAllStarts();
-         output.writeInt(starts.size());
-         for (Map.Entry<Structure, StructureStart> entry : starts.entrySet()) {
--            ResourceLocation key = registry.getKey(entry.getKey());
-+            ResourceLocation key = this.structureRegistry.getKey(entry.getKey());
-             if (key == null) {
-                 throw new IOException("Cube contains an unregistered structure start");
-             }
-             output.writeUTF(key.toString());
--            NbtIo.write(entry.getValue().createTag(context, entry.getValue().getChunkPos()), output);
-+            NbtIo.write(entry.getValue().createTag(this.structureContext, entry.getValue().getChunkPos()), output);
-         }
- 
-         Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> references = cube.getAllReferences();
-         output.writeInt(references.size());
-         for (Map.Entry<Structure, it.unimi.dsi.fastutil.longs.LongSet> entry : references.entrySet()) {
--            ResourceLocation key = registry.getKey(entry.getKey());
-+            ResourceLocation key = this.structureRegistry.getKey(entry.getKey());
-             if (key == null) {
-                 throw new IOException("Cube contains references to an unregistered structure");
-             }
-@@ -299,9 +301,7 @@ public final class CubeStorage {
-         }
-     }
- 
--    private static StructureData readStructures(DataInputStream input, Path source, ServerLevel level) throws IOException {
--        Registry<Structure> registry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
--        StructurePieceSerializationContext context = StructurePieceSerializationContext.fromLevel(level);
-+    private StructureData readStructures(DataInputStream input, Path source, ServerLevel level) throws IOException {
-         Map<Structure, StructureStart> starts = new java.util.HashMap<>();
-         int startCount = readCount(input, source, "structure start");
-         for (int index = 0; index < startCount; index++) {
-             ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
--            Structure structure = key == null ? null : registry.getValue(key);
-+            Structure structure = key == null ? null : this.structureRegistry.getValue(key);
-             CompoundTag tag = NbtIo.read(input);
-             if (structure == null) {
-                 throw new IOException("Unknown structure start " + key + " in " + source);
-             }
--            StructureStart start = StructureStart.loadStaticStart(context, tag, level.getSeed());
-+            StructureStart start = StructureStart.loadStaticStart(this.structureContext, tag, level.getSeed());
-             if (start != null) {
-                 starts.put(structure, start);
-             }
-@@ -311,7 +311,7 @@ public final class CubeStorage {
-         int referenceCount = readCount(input, source, "structure reference");
-         for (int index = 0; index < referenceCount; index++) {
-             ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
--            Structure structure = key == null ? null : registry.getValue(key);
-+            Structure structure = key == null ? null : this.structureRegistry.getValue(key);
-             if (structure == null) {
-                 throw new IOException("Unknown structure reference " + key + " in " + source);
-             }
-diff --git a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java b/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
---- a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
-+++ b/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
-@@ -46,7 +46,7 @@ public class TestCubeStorage extends BaseTest {
-         original.getSections()[0].setBlockState(3, 4, 5, Blocks.DIAMOND_BLOCK.defaultBlockState());
-         original.setLightCorrect(true);
- 
--        CubeStorage storage = new CubeStorage(temporaryDirectory);
-+        CubeStorage storage = new CubeStorage(temporaryDirectory, level);
-         storage.save(original);
- 
-         var loadedProto = storage.load(level, cubePos).orElseThrow();
-@@ -81,7 +81,7 @@ public class TestCubeStorage extends BaseTest {
-         blockEntityTag.putInt("z", blockEntityPos.getZ());
-         original.setBlockEntityNbt(blockEntityTag);
- 
--        CubeStorage storage = new CubeStorage(temporaryDirectory);
-+        CubeStorage storage = new CubeStorage(temporaryDirectory, level);
-         storage.save(original);
-         LevelCube loaded = (LevelCube) storage.load(level, cubePos).orElseThrow().cc_getWrappedClo();
- 
-@@ -103,10 +103,11 @@ public class TestCubeStorage extends BaseTest {
-     @ExtendWith(EphemeralTestServerProvider.class)
-     @Test
-     public void dirtyAwareSaveReturnsFalseAfterTheCubeIsClean(MinecraftServer server, @TempDir Path temporaryDirectory) throws IOException {
--        LevelCube cube = new LevelCube(createLevel(server), CubePos.of(4, -2, 7));
-+        ServerLevel level = createLevel(server);
-+        LevelCube cube = new LevelCube(level, CubePos.of(4, -2, 7));
-         cube.markUnsaved();
--        CubeStorage storage = new CubeStorage(temporaryDirectory);
-+        CubeStorage storage = new CubeStorage(temporaryDirectory, level);
- 
-         assertTrue(storage.saveIfUnsaved(cube));
-         assertFalse(storage.saveIfUnsaved(cube));
-@@ -117,10 +118,11 @@ public class TestCubeStorage extends BaseTest {
-         Path blockedRoot = temporaryDirectory.resolve("blocked-root");
-         Files.writeString(blockedRoot, "not a directory");
--        LevelCube cube = new LevelCube(createLevel(server), CubePos.of(-3, 5, 9));
-+        ServerLevel level = createLevel(server);
-+        LevelCube cube = new LevelCube(level, CubePos.of(-3, 5, 9));
-         cube.markUnsaved();
- 
--        CubeStorage storage = new CubeStorage(blockedRoot);
-+        CubeStorage storage = new CubeStorage(blockedRoot, level);
-         assertThrows(IOException.class, () -> storage.saveIfUnsaved(cube));
-         assertTrue(cube.isUnsaved());
-     }
+from pathlib import Path
+
+
+def replace(path: str, old: str, new: str) -> None:
+    file = Path(path)
+    text = file.read_text(encoding="utf-8")
+    if old not in text:
+        raise SystemExit(f"Expected source block was not found in {path}")
+    file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+replace(
+    "src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java",
+    '            cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"));\n',
+    '            cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"), level);\n',
+)
+
+replace(
+    "src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java",
+    """            CloPos cloPos = cloAccess.cc_getCloPos();
+            if (cloAccess instanceof LevelCube levelCube) {
+                levelCube.setLoaded(false);
+                this.cc_save(levelCube);
+                ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
+            } else {
+""",
+    """            CloPos cloPos = cloAccess.cc_getCloPos();
+            if (cloPos.isCube()) {
+                if (cloAccess instanceof LevelCube levelCube) {
+                    levelCube.setLoaded(false);
+                }
+                this.cc_save(cloAccess);
+                if (cloAccess instanceof LevelCube levelCube) {
+                    ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
+                }
+            } else {
+""",
+)
+
+replace(
+    "src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java",
+    """    private final Path root;
+
+    public CubeStorage(Path root) {
+        this.root = root;
+    }
+""",
+    """    private final Path root;
+    private final Registry<Structure> structureRegistry;
+    private final StructurePieceSerializationContext structureContext;
+
+    public CubeStorage(Path root, ServerLevel level) {
+        this.root = root;
+        this.structureRegistry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        this.structureContext = StructurePieceSerializationContext.fromLevel(level);
+    }
+""",
+)
+
+replace(
+    "src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java",
+    """    private static void writeStructures(DataOutputStream output, LevelCube cube, ServerLevel level) throws IOException {
+        Registry<Structure> registry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        StructurePieceSerializationContext context = StructurePieceSerializationContext.fromLevel(level);
+        Map<Structure, StructureStart> starts = cube.getAllStarts();
+        output.writeInt(starts.size());
+        for (Map.Entry<Structure, StructureStart> entry : starts.entrySet()) {
+            ResourceLocation key = registry.getKey(entry.getKey());
+            if (key == null) {
+                throw new IOException("Cube contains an unregistered structure start");
+            }
+            output.writeUTF(key.toString());
+            NbtIo.write(entry.getValue().createTag(context, entry.getValue().getChunkPos()), output);
+        }
+
+        Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> references = cube.getAllReferences();
+        output.writeInt(references.size());
+        for (Map.Entry<Structure, it.unimi.dsi.fastutil.longs.LongSet> entry : references.entrySet()) {
+            ResourceLocation key = registry.getKey(entry.getKey());
+            if (key == null) {
+                throw new IOException("Cube contains references to an unregistered structure");
+            }
+            output.writeUTF(key.toString());
+            long[] values = entry.getValue().toLongArray();
+            output.writeInt(values.length);
+            for (long value : values) {
+                output.writeLong(value);
+            }
+        }
+    }
+""",
+    """    private void writeStructures(DataOutputStream output, LevelCube cube, ServerLevel level) throws IOException {
+        Map<Structure, StructureStart> starts = cube.getAllStarts();
+        output.writeInt(starts.size());
+        for (Map.Entry<Structure, StructureStart> entry : starts.entrySet()) {
+            ResourceLocation key = this.structureRegistry.getKey(entry.getKey());
+            if (key == null) {
+                throw new IOException("Cube contains an unregistered structure start");
+            }
+            output.writeUTF(key.toString());
+            NbtIo.write(entry.getValue().createTag(this.structureContext, entry.getValue().getChunkPos()), output);
+        }
+
+        Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> references = cube.getAllReferences();
+        output.writeInt(references.size());
+        for (Map.Entry<Structure, it.unimi.dsi.fastutil.longs.LongSet> entry : references.entrySet()) {
+            ResourceLocation key = this.structureRegistry.getKey(entry.getKey());
+            if (key == null) {
+                throw new IOException("Cube contains references to an unregistered structure");
+            }
+            output.writeUTF(key.toString());
+            long[] values = entry.getValue().toLongArray();
+            output.writeInt(values.length);
+            for (long value : values) {
+                output.writeLong(value);
+            }
+        }
+    }
+""",
+)
+
+replace(
+    "src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java",
+    """    private static StructureData readStructures(DataInputStream input, Path source, ServerLevel level) throws IOException {
+        Registry<Structure> registry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        StructurePieceSerializationContext context = StructurePieceSerializationContext.fromLevel(level);
+        Map<Structure, StructureStart> starts = new java.util.HashMap<>();
+        int startCount = readCount(input, source, "structure start");
+        for (int index = 0; index < startCount; index++) {
+            ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
+            Structure structure = key == null ? null : registry.getValue(key);
+            CompoundTag tag = NbtIo.read(input);
+            if (structure == null) {
+                throw new IOException("Unknown structure start " + key + " in " + source);
+            }
+            StructureStart start = StructureStart.loadStaticStart(context, tag, level.getSeed());
+            if (start != null) {
+                starts.put(structure, start);
+            }
+        }
+
+        Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> references = new java.util.HashMap<>();
+        int referenceCount = readCount(input, source, "structure reference");
+        for (int index = 0; index < referenceCount; index++) {
+            ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
+            Structure structure = key == null ? null : registry.getValue(key);
+            if (structure == null) {
+                throw new IOException("Unknown structure reference " + key + " in " + source);
+            }
+            int valueCount = readCount(input, source, "structure reference position");
+            LongOpenHashSet values = new LongOpenHashSet(valueCount);
+            for (int valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+                values.add(input.readLong());
+            }
+            references.put(structure, values);
+        }
+        return new StructureData(starts, references);
+    }
+""",
+    """    private StructureData readStructures(DataInputStream input, Path source, ServerLevel level) throws IOException {
+        Map<Structure, StructureStart> starts = new java.util.HashMap<>();
+        int startCount = readCount(input, source, "structure start");
+        for (int index = 0; index < startCount; index++) {
+            ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
+            Structure structure = key == null ? null : this.structureRegistry.getValue(key);
+            CompoundTag tag = NbtIo.read(input);
+            if (structure == null) {
+                throw new IOException("Unknown structure start " + key + " in " + source);
+            }
+            StructureStart start = StructureStart.loadStaticStart(this.structureContext, tag, level.getSeed());
+            if (start != null) {
+                starts.put(structure, start);
+            }
+        }
+
+        Map<Structure, it.unimi.dsi.fastutil.longs.LongSet> references = new java.util.HashMap<>();
+        int referenceCount = readCount(input, source, "structure reference");
+        for (int index = 0; index < referenceCount; index++) {
+            ResourceLocation key = ResourceLocation.tryParse(input.readUTF());
+            Structure structure = key == null ? null : this.structureRegistry.getValue(key);
+            if (structure == null) {
+                throw new IOException("Unknown structure reference " + key + " in " + source);
+            }
+            int valueCount = readCount(input, source, "structure reference position");
+            LongOpenHashSet values = new LongOpenHashSet(valueCount);
+            for (int valueIndex = 0; valueIndex < valueCount; valueIndex++) {
+                values.add(input.readLong());
+            }
+            references.put(structure, values);
+        }
+        return new StructureData(starts, references);
+    }
+""",
+)
+
+storage_test = "src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java"
+replace(storage_test, "new CubeStorage(temporaryDirectory)", "new CubeStorage(temporaryDirectory, level)")
+replace(storage_test, "new CubeStorage(temporaryDirectory)", "new CubeStorage(temporaryDirectory, level)")
+replace(
+    storage_test,
+    """        LevelCube cube = new LevelCube(createLevel(server), CubePos.of(4, -2, 7));
+        cube.markUnsaved();
+        CubeStorage storage = new CubeStorage(temporaryDirectory);
+""",
+    """        ServerLevel level = createLevel(server);
+        LevelCube cube = new LevelCube(level, CubePos.of(4, -2, 7));
+        cube.markUnsaved();
+        CubeStorage storage = new CubeStorage(temporaryDirectory, level);
+""",
+)
+replace(
+    storage_test,
+    """        LevelCube cube = new LevelCube(createLevel(server), CubePos.of(-3, 5, 9));
+        cube.markUnsaved();
+
+        CubeStorage storage = new CubeStorage(blockedRoot);
+""",
+    """        ServerLevel level = createLevel(server);
+        LevelCube cube = new LevelCube(level, CubePos.of(-3, 5, 9));
+        cube.markUnsaved();
+
+        CubeStorage storage = new CubeStorage(blockedRoot, level);
+""",
+)
