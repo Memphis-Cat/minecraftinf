@@ -56,6 +56,8 @@ import org.mockito.Answers;
 import org.mockito.Mockito;
 
 public class IntegrationTestCubicChunkMap extends BaseTest {
+    private static final int LOAD_ORDER_CHECK_INTERVAL = 256;
+
     private CloseableReference<ServerChunkCache> createServerChunkCache(boolean vanillaTest, RegistryAccess registryAccess)
             throws IOException, NoSuchFieldException, IllegalAccessException {
         HolderGetter<Biome> biome = registryAccess.lookupOrThrow(Registries.BIOME);
@@ -220,10 +222,16 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
 
             Map<CloPos, List<ChunkHolder>> chunksByCubeColumn = new HashMap<>();
             List<ChunkHolder> cubes = new ArrayList<>();
+            int polledTaskCount = 0;
             while (!(future.isDone() || future.isCompletedExceptionally())) {
-                assertChunkCubeLoadOrder(chunkMap, chunksByCubeColumn, cubes);
+                if (polledTaskCount % LOAD_ORDER_CHECK_INTERVAL == 0) {
+                    assertChunkCubeLoadOrder(chunkMap, chunksByCubeColumn, cubes);
+                }
                 ServerChunkCache.MainThreadExecutor mainThreadProcessor = ((ServerChunkCacheTestAccess) serverChunkCache).getMainThreadProcessor();
-                mainThreadProcessor.pollTask();
+                if (!mainThreadProcessor.pollTask()) {
+                    Thread.yield();
+                }
+                ++polledTaskCount;
             }
             var result = (ChunkResult<LevelCube>) (Object) future.get();
             assertTrue(result.isSuccess(), () -> "Full chunk future ChunkResult should be successful, but was " + result.getError());
