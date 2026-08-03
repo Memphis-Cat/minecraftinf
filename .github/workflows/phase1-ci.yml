@@ -1,9 +1,6 @@
 name: CubicChunks3 Runtime Completion Apply
 
 on:
-  push:
-    branches:
-      - agent/cubicchunks3-phase1
   pull_request:
     branches:
       - dev
