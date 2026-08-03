@@ -178,3 +178,21 @@ replace(
     }
 """,
 )
+
+# Export the generated files after Spotless has formatted them. The temporary
+# task and exporter remove themselves before the workflow creates its source
+# integration commit, so neither becomes part of the runtime implementation.
+build_file = Path("build.gradle")
+build_file.write_text(
+    build_file.read_text()
+    + """
+// CC_RUNTIME_EXPORT_BEGIN
+tasks.named("spotlessApply") {
+    doLast {
+        exec {
+            commandLine "python3", ".github/scripts/export-runtime-source.py"
+        }
+    }
+}
+"""
+)
