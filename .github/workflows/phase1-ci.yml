@@ -1,4 +1,4 @@
-name: CubicChunks3 Runtime Completion Apply
+name: CubicChunks3 Runtime Source Integration
 
 on:
   pull_request:
@@ -6,16 +6,16 @@ on:
       - dev
 
 concurrency:
-  group: cubicchunks3-runtime-completion
+  group: cubicchunks3-runtime-source-integration
   cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  apply-test-and-commit:
+  integrate-and-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - name: Check out feature branch and submodules
         uses: actions/checkout@v4
@@ -24,23 +24,14 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Apply deterministic source edits
-        run: python .github/scripts/apply-runtime-completion.py
-
-      - name: Fix integration generator fixture
-        run: python .github/scripts/fix-runtime-tests.py
-
-      - name: Fix runtime access contracts and test invariants
-        run: python .github/scripts/fix-runtime-access.py
-
-      - name: Implement cubic scheduled tick storage
-        run: python .github/scripts/fix-cubic-ticks.py
-
-      - name: Use cubic tick stores in integration server fixture
-        run: python .github/scripts/fix-cubic-tick-fixture.py
-
-      - name: Run each generation matrix sequentially
-        run: python .github/scripts/optimize-generation-matrix.py
+      - name: Apply deterministic runtime implementation
+        run: |
+          python .github/scripts/apply-runtime-completion.py
+          python .github/scripts/fix-runtime-tests.py
+          python .github/scripts/fix-runtime-access.py
+          python .github/scripts/fix-cubic-ticks.py
+          python .github/scripts/fix-cubic-tick-fixture.py
+          python .github/scripts/optimize-generation-matrix.py
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -58,69 +49,204 @@ jobs:
       - name: Format source
         run: ./gradlew spotlessApply --stacktrace --no-daemon
 
-      - name: Run unit and integration tests with stall diagnostics
+      - name: Compile and verify static checks before integration
+        run: ./gradlew build -x test --stacktrace --no-daemon
+
+      - name: Commit real source and restore normal CI
         shell: bash
         run: |
           set -euo pipefail
-          cat >/tmp/runtime-test-logging.gradle <<'GRADLE'
-          allprojects {
-            tasks.withType(Test).configureEach {
-              testLogging {
-                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-                showCauses = true
-                showStackTraces = true
-              }
-            }
-          }
-          GRADLE
-          : > runtime-test.log
-          setsid ./gradlew test -I /tmp/runtime-test-logging.gradle --stacktrace --no-daemon >runtime-test.log 2>&1 &
-          process_group=$!
+          cat > .github/workflows/phase1-ci.yml <<'WORKFLOW'
+          name: CubicChunks3 Phase 1 CI
 
-          terminate_group() {
-            kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
-            sleep 3
-            kill -KILL -- "-$process_group" >/dev/null 2>&1 || true
-          }
-          dump_threads() {
-            ps -eo pid,ppid,pgid,stat,etime,cmd > runtime-test-processes.txt
-            for pid in $(jps -q 2>/dev/null || true); do
-              jcmd "$pid" Thread.print -l > "runtime-test-thread-${pid}.txt" 2>&1 || true
-            done
-          }
-          trap terminate_group EXIT
+          on:
+            pull_request:
+              branches:
+                - dev
 
-          for _ in $(seq 1 2100); do
-            if grep -Eq '^[^[:space:]].* FAILED$|^> Task :test FAILED$' runtime-test.log; then
-              sleep 5
-              dump_threads
-              cat runtime-test.log
-              terminate_group
-              trap - EXIT
-              exit 1
-            fi
-            if ! kill -0 "$process_group" >/dev/null 2>&1; then
-              wait "$process_group"
-              trap - EXIT
-              exit 0
-            fi
-            sleep 1
-          done
+          concurrency:
+            group: cubicchunks3-phase1-${{ github.event.pull_request.number || github.ref }}
+            cancel-in-progress: true
 
-          dump_threads
-          echo 'Runtime tests exceeded thirty-five minutes.' >&2
-          terminate_group
-          trap - EXIT
-          exit 124
+          permissions:
+            contents: read
 
-      - name: Run full checks
-        run: ./gradlew check --stacktrace --no-daemon
+          jobs:
+            validate:
+              runs-on: ubuntu-latest
+              timeout-minutes: 75
+              steps:
+                - name: Check out repository and submodules
+                  uses: actions/checkout@v4
+                  with:
+                    submodules: recursive
+                    fetch-depth: 0
 
-      - name: Run real save, stop, restart, and reload test
-        run: bash .github/scripts/server-persistence-smoke.sh
+                - name: Upload source snapshot
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: phase1-source-${{ github.sha }}
+                    path: |
+                      .
+                      !.git/**
+                      !build/**
+                      !CubicChunksCore/build/**
+                      !run/**
+                    include-hidden-files: true
+                    if-no-files-found: error
+                    retention-days: 7
 
-      - name: Commit validated runtime implementation
-        run: |
+                - name: Set up Java 21
+                  uses: actions/setup-java@v4
+                  with:
+                    distribution: temurin
+                    java-version: '21'
+                    cache: gradle
+
+                - name: Validate Gradle wrapper
+                  uses: gradle/actions/wrapper-validation@v4
+
+                - name: Make Gradle wrapper executable
+                  run: chmod +x gradlew
+
+                - name: Run CubicChunksCore tests
+                  run: ./gradlew :CubicChunksCore:test --stacktrace --no-daemon
+
+                - name: Run unit tests in an isolated JVM
+                  run: >-
+                    ./gradlew test
+                    --tests 'io.github.opencubicchunks.cubicchunks.test.*'
+                    --tests 'io.github.opencubicchunks.cubicchunks.world.level.cube.status.TestCubeColumnBridge'
+                    --stacktrace --no-daemon
+
+                - name: Run ServerCubeCache integration tests in an isolated JVM
+                  run: >-
+                    ./gradlew test
+                    --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache'
+                    --stacktrace --no-daemon
+
+                - name: Run ChunkMap integration tests in an isolated JVM
+                  run: >-
+                    ./gradlew test
+                    --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap'
+                    --stacktrace --no-daemon
+
+                - name: Run formatting and static checks
+                  run: ./gradlew check -x test --stacktrace --no-daemon
+
+                - name: Inspect Minecraft completion APIs
+                  if: always()
+                  run: bash .github/scripts/inspect-minecraft-storage.sh
+
+                - name: Upload reports
+                  if: always()
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: phase1-reports
+                    path: |
+                      build/reports/
+                      build/test-results/
+                      CubicChunksCore/build/reports/
+                      CubicChunksCore/build/test-results/
+                      build/minecraft-storage-inspection/
+                    if-no-files-found: ignore
+
+            server-smoke:
+              needs: validate
+              runs-on: ubuntu-latest
+              timeout-minutes: 20
+              steps:
+                - uses: actions/checkout@v4
+                  with:
+                    submodules: recursive
+                    fetch-depth: 0
+                - uses: actions/setup-java@v4
+                  with:
+                    distribution: temurin
+                    java-version: '21'
+                    cache: gradle
+                - run: chmod +x gradlew
+                - name: Configure smoke-test server
+                  run: |
+                    mkdir -p run
+                    printf 'eula=true\n' > run/eula.txt
+                    cat > run/server.properties <<'PROPERTIES'
+                    online-mode=false
+                    view-distance=2
+                    simulation-distance=2
+                    max-tick-time=-1
+                    level-name=phase1-smoke-world
+                    motd=CubicChunks3 Phase 1 Smoke Test
+                    PROPERTIES
+                - name: Start dedicated server and wait for readiness
+                  run: |
+                    set -euo pipefail
+                    : > server-smoke.log
+                    setsid ./gradlew runServer --stacktrace --no-daemon >server-smoke.log 2>&1 &
+                    process_group=$!
+                    cleanup() {
+                      kill -INT -- "-$process_group" >/dev/null 2>&1 || true
+                      sleep 5
+                      kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
+                      wait "$process_group" >/dev/null 2>&1 || true
+                    }
+                    trap cleanup EXIT
+                    for _ in $(seq 1 360); do
+                      if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' server-smoke.log; then
+                        exit 0
+                      fi
+                      if ! kill -0 "$process_group" >/dev/null 2>&1; then
+                        cat server-smoke.log
+                        exit 1
+                      fi
+                      sleep 1
+                    done
+                    cat server-smoke.log
+                    exit 1
+                - name: Upload dedicated-server logs
+                  if: always()
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: phase1-server-smoke-logs
+                    path: |
+                      server-smoke.log
+                      run/logs/
+                      run/crash-reports/
+                    if-no-files-found: ignore
+
+            persistence-smoke:
+              needs: server-smoke
+              runs-on: ubuntu-latest
+              timeout-minutes: 30
+              steps:
+                - uses: actions/checkout@v4
+                  with:
+                    submodules: recursive
+                    fetch-depth: 0
+                - uses: actions/setup-java@v4
+                  with:
+                    distribution: temurin
+                    java-version: '21'
+                    cache: gradle
+                - name: Run cubic save and reload test
+                  run: bash .github/scripts/server-persistence-smoke.sh
+                - name: Upload persistence artifacts
+                  if: always()
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: phase1-persistence-smoke-logs
+                    path: |
+                      server-persistence-first.log
+                      server-persistence-second.log
+                      save-flush-rcon.log
+                      save-flush-processes.txt
+                      save-flush-thread-*.txt
+                      run/logs/
+                      run/crash-reports/
+                      run/phase1-persistence-world/cubicchunks/**
+                    if-no-files-found: ignore
+          WORKFLOW
+
           rm -f .github/runtime-completion.patch \
                 .github/scripts/apply-runtime-completion.py \
                 .github/scripts/fix-runtime-tests.py \
@@ -128,21 +254,44 @@ jobs:
                 .github/scripts/fix-cubic-ticks.py \
                 .github/scripts/fix-cubic-tick-fixture.py \
                 .github/scripts/optimize-generation-matrix.py
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Complete cube runtime routing and remove scheduler deadlock"
+          git commit -m "Integrate cube runtime implementation into source"
           git push origin HEAD:agent/cubicchunks3-phase1
+
+      - name: Run unit tests in an isolated JVM
+        run: >-
+          ./gradlew test
+          --tests 'io.github.opencubicchunks.cubicchunks.test.*'
+          --tests 'io.github.opencubicchunks.cubicchunks.world.level.cube.status.TestCubeColumnBridge'
+          --stacktrace --no-daemon
+
+      - name: Run ServerCubeCache integration tests in an isolated JVM
+        run: >-
+          ./gradlew test
+          --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache'
+          --stacktrace --no-daemon
+
+      - name: Run ChunkMap integration tests in an isolated JVM
+        run: >-
+          ./gradlew test
+          --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap'
+          --stacktrace --no-daemon
+
+      - name: Run full checks without rerunning tests
+        run: ./gradlew check -x test --stacktrace --no-daemon
+
+      - name: Run real save, stop, restart, and reload test
+        run: bash .github/scripts/server-persistence-smoke.sh
 
       - name: Upload reports and server logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-completion-validation
+          name: runtime-source-integration-validation
           path: |
-            runtime-test.log
-            runtime-test-processes.txt
-            runtime-test-thread-*.txt
             build/reports/
             build/test-results/
             CubicChunksCore/build/reports/
