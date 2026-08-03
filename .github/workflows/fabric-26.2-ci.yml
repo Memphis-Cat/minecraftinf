@@ -40,6 +40,27 @@ jobs:
       - name: Migrate custom generators to Gradle 9
         run: python .github/fabric-gradle9-migrate.py
 
+      - name: Set up Java 17 for CubicChunksCore
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Build CubicChunksCore before Loom configuration
+        run: |
+          set -euo pipefail
+          chmod +x CubicChunksCore/gradlew
+          ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble --stacktrace --no-daemon 2>&1 | tee fabric-core-build.log
+          test -s CubicChunksCore/build/libs/CubicChunksCore.jar
+
+      - name: Restore Java 25 for Minecraft 26.2
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
       - name: Compile Fabric 26.2 sources
         run: |
           set -euo pipefail
@@ -93,6 +114,7 @@ jobs:
         with:
           name: fabric-26.2-port-diagnostics
           path: |
+            fabric-core-build.log
             fabric-compile.log
             fabric-build.log
             fabric-server.log
