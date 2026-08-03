@@ -160,7 +160,8 @@ jobs:
             --exclude=.gradle \
             --exclude='**/build' \
             --exclude='**/.gradle' \
-            -czf fabric-port-source.tar.gz .
+            -czf /tmp/fabric-port-source.tar.gz .
+          mv /tmp/fabric-port-source.tar.gz fabric-port-source.tar.gz
 
       - name: Upload Fabric port diagnostics
         if: always()
