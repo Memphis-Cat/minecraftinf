@@ -24,6 +24,7 @@ import io.github.opencubicchunks.cubicchunks.mixin.test.common.server.level.Gene
 import io.github.opencubicchunks.cubicchunks.mixin.test.common.server.level.ServerChunkCacheTestAccess;
 import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeLevel;
+import io.github.opencubicchunks.cubicchunks.test.LongRunTest;
 import io.github.opencubicchunks.cubicchunks.testutils.BaseTest;
 import io.github.opencubicchunks.cubicchunks.testutils.CloseableReference;
 import io.github.opencubicchunks.cubicchunks.testutils.DummyChunkProgressListener;
@@ -178,9 +179,11 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
     }
 
     /**
-     * Load a single cube at full status
+     * Load a single cube through the entire dependency pyramid. This remains a required manual
+     * integration gate, but is excluded from ordinary pull-request runs because it intentionally
+     * constructs the full cubic generation neighborhood.
      */
-//    @LongRunTest
+    @LongRunTest
     @ExtendWith(EphemeralTestServerProvider.class)
     @Test
     public void singleFullCube(MinecraftServer server) throws Exception {
