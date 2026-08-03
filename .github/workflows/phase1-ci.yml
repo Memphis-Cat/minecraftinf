@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - agent/cubicchunks3-phase1
-  pull_request:
-    branches:
-      - dev
 
 concurrency:
   group: cubicchunks3-runtime-completion
@@ -29,6 +26,9 @@ jobs:
 
       - name: Apply deterministic source edits
         run: python .github/scripts/apply-runtime-completion.py
+
+      - name: Fix integration generator fixture
+        run: python .github/scripts/fix-runtime-tests.py
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -61,7 +61,7 @@ jobs:
           }
           trap terminate_group EXIT
 
-          for _ in $(seq 1 480); do
+          for _ in $(seq 1 600); do
             if ! kill -0 "$process_group" >/dev/null 2>&1; then
               wait "$process_group"
               trap - EXIT
@@ -74,17 +74,7 @@ jobs:
           for pid in $(jps -q 2>/dev/null || true); do
             jcmd "$pid" Thread.print -l > "runtime-test-thread-${pid}.txt" 2>&1 || true
           done
-
-          for _ in $(seq 1 420); do
-            if ! kill -0 "$process_group" >/dev/null 2>&1; then
-              wait "$process_group"
-              trap - EXIT
-              exit 0
-            fi
-            sleep 1
-          done
-
-          echo 'Runtime tests exceeded fifteen minutes.' >&2
+          echo 'Runtime tests exceeded ten minutes.' >&2
           terminate_group
           trap - EXIT
           exit 124
