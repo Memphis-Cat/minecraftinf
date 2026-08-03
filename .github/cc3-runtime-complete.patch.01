@@ -50,7 +50,8 @@ nkMap extends MixinChunkStorage implements Generat
 +                    );
 +                    this.level.unload(levelChunk);
 +                }
-+                this.lightEngine.updateChunkStatus(chunkAccess.getPos());
++                ((io.github.opencubicchunks.cubicchunks.mixin.access.common.ThreadedLevelLightEngineAccess) (Object) this.lightEngine)
++                        .cc_invokeUpdateChunkStatus(chunkAccess.getPos());
 +                this.lightEngine.tryScheduleUpdate();
 +            }
 +
