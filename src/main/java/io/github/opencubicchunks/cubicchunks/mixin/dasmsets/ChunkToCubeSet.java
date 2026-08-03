@@ -16,8 +16,6 @@ import io.github.notstirred.dasm.api.annotations.redirect.sets.RedirectSet;
 import io.github.notstirred.dasm.api.annotations.selector.Ref;
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cubicchunks.client.multiplayer.ClientCubeCache;
-import io.github.opencubicchunks.cubicchunks.movetoforgesourcesetlater.CCCommonHooks;
-import io.github.opencubicchunks.cubicchunks.movetoforgesourcesetlater.EventConstructorDelegates;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeLevel;
 import io.github.opencubicchunks.cubicchunks.server.level.GeneratingCubeMap;
@@ -58,18 +56,9 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkStatusTask;
 import net.minecraft.world.level.chunk.status.ChunkStatusTasks;
 import net.minecraft.world.level.chunk.status.ChunkStep;
-import net.neoforged.bus.api.Event;
-import net.neoforged.neoforge.common.CommonHooks;
-import net.neoforged.neoforge.event.level.ChunkEvent;
 
 /**
- * Should be used for DASM transforms that work with only Cubes (as opposed to working with both Chunks and Cubes) <br/>
- * <br/>
- * Cube-related field and
- * type redirects, and method redirects containing Cube-related types in the signature or return type should be added to this set. <br/>
- * Other
- * redirects may also be added to this set if they should only be applied in contexts working with only Cubes. Redirects applicable in all contexts
- * should be added to {@link GlobalSet}.
+ * Redirects transforms that operate on cubes rather than vanilla columns.
  */
 @RedirectSet
 public interface ChunkToCubeSet extends GlobalSet {
@@ -87,8 +76,6 @@ public interface ChunkToCubeSet extends GlobalSet {
         @MethodRedirect("toLong()J")
         native long asLong();
 
-        // Dummy methods that throw errors; these should be manually redirected to the correct x,y,z methods using mixin.
-        // (See: MixinCubePos)
         @ConstructorToFactoryRedirect("<init>(II)V")
         static native CubePos dummy_fromChunkCoords(int x, int z);
 
@@ -106,9 +93,7 @@ public interface ChunkToCubeSet extends GlobalSet {
     }
 
     @TypeRedirect(from = @Ref(string = "net.minecraft.world.level.chunk.ChunkAccess$ChunkPathElement"), to = @Ref(string = "io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess$CubePathElement"))
-    abstract class ChunkAccess$ChunkPathElement_to_CubeAccess$CubePathElement_redirects {
-
-    }
+    abstract class ChunkAccess$ChunkPathElement_to_CubeAccess$CubePathElement_redirects {}
 
     @TypeRedirect(from = @Ref(LevelChunk.class), to = @Ref(LevelCube.class))
     abstract class LevelChunk_to_LevelCube_redirects extends ChunkAccess_to_CubeAccess_redirects {}
@@ -131,7 +116,6 @@ public interface ChunkToCubeSet extends GlobalSet {
     @TypeRedirect(from = @Ref(EmptyLevelChunk.class), to = @Ref(EmptyLevelCube.class))
     abstract class EmptyLevelChunk_to_EmptyLevelCube_redirects {}
 
-    // FIXME probably need to move to a client-only set
     @TypeRedirect(from = @Ref(ClientChunkCache.Storage.class), to = @Ref(ClientCubeCache.Storage.class))
     abstract class ClientChunkCache$Storage_to_ClientCubeCache$Storage_redirects {}
 
@@ -188,33 +172,6 @@ public interface ChunkToCubeSet extends GlobalSet {
     @IntraOwnerContainer(@Ref(ChunkHolder.class))
     abstract class ChunkHolder_redirects extends GenerationChunkHolder_redirects {}
 
-    // region [Forge stuff]
-    // TODO move to a forge-specific sourceset
-    @TypeRedirect(from = @Ref(ChunkEvent.Load.class), to = @Ref(Event.class))
-    abstract class ChunkEvent$Load_to_Event_redirects {}
-
-    @InterOwnerContainer(from = @Ref(ChunkEvent.Load.class), to = @Ref(EventConstructorDelegates.class))
-    abstract class ChunkEvent$Load_delegateConstruction {
-        @ConstructorToFactoryRedirect("<init>(Lnet/minecraft/world/level/chunk/LevelChunk;Z)V")
-        static native Event create_ChunkEvent$Load(LevelCube levelCube, boolean newChunk);
-    }
-
-    @TypeRedirect(from = @Ref(ChunkEvent.Unload.class), to = @Ref(Event.class))
-    abstract class ChunkEvent$Unload_to_Event_redirects {}
-
-    @InterOwnerContainer(from = @Ref(ChunkEvent.Unload.class), to = @Ref(EventConstructorDelegates.class))
-    abstract class ChunkEvent$Unload_delegateConstruction {
-        @ConstructorToFactoryRedirect("<init>(Lnet/minecraft/world/level/chunk/LevelChunk;)V")
-        static native Event create_ChunkEvent$Unload(LevelCube levelCube);
-    }
-
-    @IntraOwnerContainer(@Ref(GenerationChunkHolder.class))
-    abstract class GenerationChunkHolder_Forge_Jank_redirects {}
-
-    @IntraOwnerContainer(@Ref(ChunkHolder.class))
-    abstract class ChunkHolder_Forge_Jank_redirects extends GenerationChunkHolder_Forge_Jank_redirects {}
-    // endregion
-
     @InterOwnerContainer(from = @Ref(ChunkLevel.class), to = @Ref(CubeLevel.class))
     class ChunkLevel_to_CubeLevel_redirects {}
 
@@ -244,9 +201,6 @@ public interface ChunkToCubeSet extends GlobalSet {
 
     @IntraOwnerContainer(@Ref(SectionOcclusionGraph.class))
     class SectionOcclusionGraph_redirects {}
-
-    @InterOwnerContainer(from = @Ref(CommonHooks.class), to = @Ref(CCCommonHooks.class))
-    class CommonHooks_to_CCCommonHooks_redirects {}
 
     @IntraOwnerContainer(@Ref(Level.class))
     class Level_redirects {}
