@@ -79,6 +79,15 @@ jobs:
           test -n "$minecraft_jar"
           {
             echo "Minecraft jar: $minecraft_jar"
+            ls -lh "$minecraft_jar"
+            file "$minecraft_jar"
+            sha256sum "$minecraft_jar"
+            echo "Total entries: $(unzip -Z1 "$minecraft_jar" | wc -l)"
+            echo "Class entries: $(unzip -Z1 "$minecraft_jar" | grep -c '\\.class$' || true)"
+            echo
+            echo "First jar entries:"
+            unzip -Z1 "$minecraft_jar" | head -n 300 || true
+            echo
             echo "Java runtime:"
             java -version 2>&1
             echo
