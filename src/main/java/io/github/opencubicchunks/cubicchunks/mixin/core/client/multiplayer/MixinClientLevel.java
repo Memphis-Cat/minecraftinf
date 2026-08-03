@@ -40,10 +40,10 @@ public abstract class MixinClientLevel extends MixinLevel implements CubicClient
                 int chunkX = Coords.cubeToSection(cubePos.getX(), dx);
                 int chunkZ = Coords.cubeToSection(cubePos.getZ(), dz);
                 this.tintCaches.forEach((resolver, cache) -> cache.invalidateForChunk(chunkX, chunkZ));
-                long chunkPosLong = ChunkPos.asLong(chunkX, chunkZ);
+                ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
+                long chunkPosLong = chunkPos.pack();
                 int previousCount = this.cc_loadedCubeColumns.addTo(chunkPosLong, 1);
                 if (previousCount == 0) {
-                    ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
                     this.entityStorage.startTicking(chunkPos);
                     this.chunkSource.getLightEngine().setLightEnabled(chunkPos, true);
                 }
@@ -56,11 +56,11 @@ public abstract class MixinClientLevel extends MixinLevel implements CubicClient
             for (int dz = 0; dz < CubicConstants.DIAMETER_IN_SECTIONS; ++dz) {
                 int chunkX = Coords.cubeToSection(cubePos.getX(), dx);
                 int chunkZ = Coords.cubeToSection(cubePos.getZ(), dz);
-                long chunkPosLong = ChunkPos.asLong(chunkX, chunkZ);
+                ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
+                long chunkPosLong = chunkPos.pack();
                 int previousCount = this.cc_loadedCubeColumns.get(chunkPosLong);
                 if (previousCount <= 1) {
                     this.cc_loadedCubeColumns.remove(chunkPosLong);
-                    ChunkPos chunkPos = new ChunkPos(chunkX, chunkZ);
                     this.chunkSource.getLightEngine().setLightEnabled(chunkPos, false);
                     this.entityStorage.stopTicking(chunkPos);
                 } else {
