@@ -1,26 +1,15 @@
 package io.github.opencubicchunks.cubicchunks.network;
 
-import io.github.opencubicchunks.cubicchunks.CubicChunks;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
-import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 
-@EventBusSubscriber(bus = EventBusSubscriber.Bus.MOD)
-public class CCNetworkHandler {
+public final class CCNetworkHandler {
     private CCNetworkHandler() {}
 
-    @SubscribeEvent
-    public static void register(final RegisterPayloadHandlersEvent event) {
-        // Sets the current network version
-        final PayloadRegistrar registrar = event.registrar(CubicChunks.MODID);
-
-        // Note that by default handlers run on the main thread.
-        registrar.playToClient(CCClientboundLevelCubeWithLightPacket.TYPE, CCClientboundLevelCubeWithLightPacket.STREAM_CODEC,
-                new CCClientboundLevelCubeWithLightPacket.Handler());
-        registrar.playToClient(CCClientboundForgetLevelCloPacket.TYPE, CCClientboundForgetLevelCloPacket.STREAM_CODEC,
-                new CCClientboundForgetLevelCloPacket.Handler());
-        registrar.playToClient(CCClientboundSetCubeCacheCenterPacket.TYPE, CCClientboundSetCubeCacheCenterPacket.STREAM_CODEC,
-                new CCClientboundSetCubeCacheCenterPacket.Handler());
+    public static void registerPayloadTypes() {
+        PayloadTypeRegistry.clientboundPlay().register(CCClientboundLevelCubeWithLightPacket.TYPE,
+                CCClientboundLevelCubeWithLightPacket.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(CCClientboundForgetLevelCloPacket.TYPE, CCClientboundForgetLevelCloPacket.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(CCClientboundSetCubeCacheCenterPacket.TYPE,
+                CCClientboundSetCubeCacheCenterPacket.STREAM_CODEC);
     }
 }
