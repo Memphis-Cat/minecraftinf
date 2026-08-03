@@ -63,7 +63,10 @@ mixinGen {
 }
 
 loom {
-    accessWidenerPath = file('src/main/resources/cubicchunks.accesswidener')
+    // Fabric Loader applies cubicchunks.accesswidener from fabric.mod.json at runtime.
+    // Loom's 26.2 processed-jar path currently copies only the resources artifact
+    // when a local compile-time widener is configured, so source access is expressed
+    // through mixin accessors/invokers instead of mutating the compile Minecraft jar.
     runs {
         client {
             client()
