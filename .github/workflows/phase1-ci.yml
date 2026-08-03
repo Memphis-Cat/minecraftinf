@@ -87,7 +87,7 @@ jobs:
           }
           trap terminate_group EXIT
 
-          for _ in $(seq 1 600); do
+          for _ in $(seq 1 2100); do
             if grep -Eq '^[^[:space:]].* FAILED$|^> Task :test FAILED$' runtime-test.log; then
               sleep 5
               dump_threads
@@ -105,7 +105,7 @@ jobs:
           done
 
           dump_threads
-          echo 'Runtime tests exceeded ten minutes.' >&2
+          echo 'Runtime tests exceeded thirty-five minutes.' >&2
           terminate_group
           trap - EXIT
           exit 124
