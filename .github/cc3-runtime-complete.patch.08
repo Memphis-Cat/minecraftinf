@@ -1,0 +1,72 @@
+ForSerialization(level.getGameTime());
++                writeTicks(output, ticks.blocks(), BuiltInRegistries.BLOCK);
++                writeTicks(output, ticks.fluids(), BuiltInRegistries.FLUID);
++                writeStructures(output, cube, level);
++                writeLightLayers(output, cube, level);
++            }
++            atomicReplace(temporary, destination);
++        } catch (IOException | RuntimeException exception) {
++            Files.deleteIfExists(temporary);
++            throw exception;
+         }
+     }
+ 
+@@ -96,29 +127,287 @@ public final class CubeStorage {
+ 
+         try (DataInputStream input = new DataInputStream(new BufferedInputStream(Files.newInputStream(source)))) {
+             validateMagic(input.readInt(), source);
+-            validateVersion(input.readInt(), source);
++            int version = input.readInt();
++            validateVersion(version, source);
+             validatePosition(CubePos.of(input.readInt(), input.readInt(), input.readInt()), expectedPos);
+             validateSectionCount(input.readInt());
+ 
+             long inhabitedTime = input.readLong();
+             boolean lightCorrect = input.readBoolean();
+-            byte[] sectionData = readSectionData(input, source);
++            byte[] sectionData = readByteArray(input, source, "section palette");
+             Registry<Biome> biomeRegistry = level.registryAccess().lookupOrThrow(Registries.BIOME);
+             LevelChunkSection[] sections = deserializeSections(sectionData, biomeRegistry);
+-            LevelCube cube = new LevelCube(level, expectedPos, UpgradeData.EMPTY, new LevelChunkTicks<>(), new LevelChunkTicks<>(), inhabitedTime,
+-                    sections, null, null);
+-            cube.setLightCorrect(lightCorrect);
++
++            if (version == VERSION_SECTIONS_ONLY) {
++                LevelCube legacyCube = new LevelCube(level, expectedPos, UpgradeData.EMPTY, new LevelChunkTicks<>(), new LevelChunkTicks<>(), inhabitedTime,
++                        sections, null, null);
++                // Version 1 did not contain actual light layers, so force a safe relight after load.
++                legacyCube.setLightCorrect(false);
++                legacyCube.tryMarkSaved();
++                return loaded(expectedPos, legacyCube);
++            }
++
++            ShortList[] postProcessing = readPostProcessing(input, source);
++            List<CompoundTag> blockEntities = readBlockEntities(input, source);
++            List<SavedTick<Block>> blockTicks = readTicks(input, source, BuiltInRegistries.BLOCK, "block");
++            List<SavedTick<Fluid>> fluidTicks = readTicks(input, source, BuiltInRegistries.FLUID, "fluid");
++            StructureData structures = readStructures(input, source, level);
++
++            LevelCube cube = new LevelCube(level, expectedPos, UpgradeData.EMPTY, new LevelChunkTicks<>(blockTicks), new LevelChunkTicks<>(fluidTicks),
++                    inhabitedTime, sections, null, null);
++            for (int index = 0; index < postProcessing.length; index++) {
++                ShortList offsets = postProcessing[index];
++                if (offsets != null && !offsets.isEmpty()) {
++                    cube.addPackedPostProcess(offsets, index);
++                }
++            }
++            blockEntities.forEach(cube::setBlockEntityNbt);
++            cube.setAllStarts(structures.starts());
++            cube.setAllReferences(structures.references());
++            boolean completeLightPayload = readLightLayers(input, source, expectedPos, level);
++            if (input.read() != -1) {
++                throw new IOException("Trailing data after cube payload in " + source);
++            }
++            cube.setLightCorrect(lightCorrect && completeLightPayload);
+             cube.tryMarkSaved();
+-            CubicChunks.LOGGER.info("Loaded persisted cube {}", expectedPos);
+-            return Optional.of(new ImposterProtoCube(cube, false));
++            return loaded(expectedPos, cube);
++        }
++    }
++
++    priva

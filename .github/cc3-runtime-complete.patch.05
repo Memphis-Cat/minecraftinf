@@ -1,0 +1,85 @@
+   int highestIndex = this.getHighestFilledSectionIndex();
++        if (highestIndex < 0) {
++            return this.cubePos.minCubeY();
++        }
++        int sectionY = Coords.cubeToSection(this.cubePos.getY(), Coords.indexToY(highestIndex));
++        return SectionPos.sectionToBlockCoord(sectionY);
+     }
+ 
+     @TransformFromMethod(value = "getBlockEntitiesPos()Ljava/util/Set;", owner = @Ref(ChunkAccess.class))
+@@ -143,15 +159,21 @@ public abstract class CubeAccess implements CloAccess {
+     @TransformFromMethod(value = "getSection(I)Lnet/minecraft/world/level/chunk/LevelChunkSection;", owner = @Ref(ChunkAccess.class))
+     @Override public native LevelChunkSection getSection(int index);
+ 
+-    // TODO (P2) heightmap methods on cubes
++    /**
++     * Global heightmaps are deliberately owned by the vanilla backing columns. A cube spans one
++     * or more columns, while a vanilla {@link Heightmap} is fixed to one 16x16 column, so storing
++     * one in a cube would be ambiguous and corrupt column generation data.
++     */
+     @Override public Collection<Map.Entry<Heightmap.Types, Heightmap>> getHeightmaps() {
+-        throw new UnsupportedOperationException();
++        return Collections.emptyList();
+     }
+ 
+-    @Override public void setHeightmap(Heightmap.Types type, long[] data) {}
++    @Override public void setHeightmap(Heightmap.Types type, long[] data) {
++        throw columnOwnedHeightmap(type);
++    }
+ 
+     @Override public Heightmap getOrCreateHeightmapUnprimed(Heightmap.Types type) {
+-        throw new UnsupportedOperationException();
++        throw columnOwnedHeightmap(type);
+     }
+ 
+     @Override public boolean hasPrimedHeightmap(Heightmap.Types type) {
+@@ -159,9 +181,22 @@ public abstract class CubeAccess implements CloAccess {
+     }
+ 
+     @Override public int getHeight(Heightmap.Types type, int x, int z) {
+-        return CubicChunks.SUPERFLAT_HEIGHT;
++        int blockX = this.cubePos.minCubeX() + Coords.blockToLocal(x);
++        int blockZ = this.cubePos.minCubeZ() + Coords.blockToLocal(z);
++        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
++        Predicate<BlockState> opaque = type.isOpaque();
++        for (int blockY = this.cubePos.maxCubeY(); blockY >= this.cubePos.minCubeY(); blockY--) {
++            BlockState state = this.getBlockState(cursor.set(blockX, blockY, blockZ));
++            if (opaque.test(state)) {
++                return blockY + 1;
++            }
++        }
++        return this.cubePos.minCubeY() - 1;
++    }
++
++    private static IllegalStateException columnOwnedHeightmap(Heightmap.Types type) {
++        return new IllegalStateException("Heightmap " + type + " is owned by the vanilla backing column, not by a cube");
+     }
+-    // end heightmaps
+ 
+     public CubePos cc_getCubePos() {
+         return cubePos;
+@@ -349,19 +384,44 @@ public abstract class CubeAccess implements CloAccess {
+     @Override public native int getHeight();
+ 
+     @Override public NoiseChunk getOrCreateNoiseChunk(Function<CloAccess, NoiseChunk> noiseChunkCreator) {
+-        throw new UnsupportedOperationException(); // TODO P3
++        if (this.noiseChunk == null) {
++            this.noiseChunk = noiseChunkCreator.apply(this);
++        }
++        return this.noiseChunk;
+     }
+ 
+     @Override public BiomeGenerationSettings carverBiome(Supplier<BiomeGenerationSettings> carverBiomeSettingsProvider) {
+-        throw new UnsupportedOperationException(); // TODO P3
++        if (this.carverBiomeSettings == null) {
++            this.carverBiomeSettings = carverBiomeSettingsProvider.get();
++        }
++        return this.carverBiomeSettings;
+     }
+ 
+     @Override public Holder<Biome> getNoiseBiome(int x, int y, int z) {
+-        throw new UnsupportedOperationException(); // TODO P3
++        int blockX = QuartPos.toBlock(x);
++        int blockY = QuartPos.toBlock(y);
++        int blockZ = QuartPos.toBlock(z);
++        if (Coords.blockToCube(blockX) != this.cubePos.getX() || Coords.block

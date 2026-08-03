@@ -1,0 +1,72 @@
+ToCube(blockY) != this.cubePos.getY()
++                || Coords.blockToCube(blockZ) != this.cubePos.getZ()) {
++            throw new IllegalArgumentException("Noise biome coordinate is outside cube " + this.cubePos + ": " + x + ", " + y + ", " + z);
++        }
++
++        LevelChunkSection section = this.sections[Coords.blockToIndex(blockX, blockY, blockZ)];
++        return section.getNoiseBiome(QuartPos.quartLocal(x), QuartPos.quartLocal(y), QuartPos.quartLocal(z));
+     }
+ 
+     @Override public void fillBiomesFromNoise(BiomeResolver resolver, Climate.Sampler sampler) {
+-        throw new UnsupportedOperationException(); // TODO P3
++        for (int localSectionY = 0; localSectionY < CubicConstants.DIAMETER_IN_SECTIONS; localSectionY++) {
++            for (int localSectionZ = 0; localSectionZ < CubicConstants.DIAMETER_IN_SECTIONS; localSectionZ++) {
++                for (int localSectionX = 0; localSectionX < CubicConstants.DIAMETER_IN_SECTIONS; localSectionX++) {
++                    int sectionIndex = Coords.sectionToIndex(localSectionX, localSectionY, localSectionZ);
++                    int quartX = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getX(), localSectionX));
++                    int quartY = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getY(), localSectionY));
++                    int quartZ = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getZ(), localSectionZ));
++                    this.sections[sectionIndex].fillBiomesFromNoise(resolver, sampler, quartX, quartY, quartZ);
++                }
++            }
++        }
+     }
+ 
+     @TransformFromMethod(value = "hasAnyStructureReferences()Z", owner = @Ref(ChunkAccess.class))
+@@ -379,11 +439,12 @@ public abstract class CubeAccess implements CloAccess {
+     @Override public native LevelHeightAccessor getHeightAccessorForGeneration();
+ 
+     @Override public void initializeLightSources() {
+-        // TODO P2
++        // Skylight source heightmaps are column-shaped and remain owned by the backing columns.
++        // Cube section light data is supplied directly to LevelLightEngine during load.
+     }
+ 
+     @Override public ChunkSkyLightSources getSkyLightSources() {
+-        throw new UnsupportedOperationException(); // TODO P2
++        return this.skyLightSources;
+     }
+ 
+     public static ProblemReporter.PathElement problemPath(CubePos cubePos) {
+diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java b/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
+index 2183759..7c15820 100644
+--- a/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
++++ b/src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java
+@@ -10,35 +10,62 @@ import java.nio.file.AtomicMoveNotSupportedException;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.StandardCopyOption;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
+ import java.util.Optional;
+ 
+ import io.github.opencubicchunks.cc_core.api.CubePos;
+ import io.github.opencubicchunks.cc_core.api.CubicConstants;
++import io.github.opencubicchunks.cc_core.utils.Coords;
+ import io.github.opencubicchunks.cubicchunks.CubicChunks;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.ImposterProtoCube;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
+ import io.netty.buffer.ByteBuf;
+ import io.netty.buffer.Unpooled;
++import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
++import it.unimi.dsi.fastutil.shorts.ShortArrayList;
++import it.unimi.dsi.fastutil.shorts.ShortList;
++import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Registry;
++import net.minecraft.core.SectionPos;
++import net.minecraft.core.registries.BuiltInRegistries;
+ import net.minecraft.core.registries.Registries;
++import net.minecraft.nbt.CompoundTag;
++import net.minecraft.nbt.NbtIo;
+ import net.minecraft.network.FriendlyByteBuf;

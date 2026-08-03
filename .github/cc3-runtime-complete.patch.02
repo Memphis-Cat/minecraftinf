@@ -1,0 +1,68 @@
+) {
+-        // TODO (P2) save/load - PoiManager
+-        return CompletableFuture.completedFuture(null);
++        if (cloPos.isChunk()) {
++            return instance.prefetch(cloPos.chunkPos());
++        }
++
++        CubePos cubePos = cloPos.cubePos();
++        CompletableFuture<?>[] futures = new CompletableFuture[CubicConstants.CHUNK_COUNT];
++        int index = 0;
++        for (int localChunkZ = 0; localChunkZ < CubicConstants.DIAMETER_IN_SECTIONS; localChunkZ++) {
++            for (int localChunkX = 0; localChunkX < CubicConstants.DIAMETER_IN_SECTIONS; localChunkX++) {
++                futures[index++] = instance.prefetch(new ChunkPos(
++                        Coords.cubeToSection(cubePos.getX(), localChunkX),
++                        Coords.cubeToSection(cubePos.getZ(), localChunkZ)
++                ));
++            }
++        }
++        return CompletableFuture.allOf(futures);
+     }
+     // endregion
+ 
+diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinServerLevel.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinServerLevel.java
+index fb26074..a6b0613 100644
+--- a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinServerLevel.java
++++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinServerLevel.java
+@@ -11,6 +11,9 @@ import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddMethodToS
+ import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddTransformToSets;
+ import io.github.notstirred.dasm.api.annotations.selector.Ref;
+ import io.github.notstirred.dasm.api.annotations.transform.TransformFromMethod;
++import io.github.opencubicchunks.cc_core.api.CubePos;
++import io.github.opencubicchunks.cc_core.api.CubicConstants;
++import io.github.opencubicchunks.cc_core.utils.Coords;
+ import io.github.opencubicchunks.cc_core.world.level.CloPos;
+ import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.MixinLevel;
+ import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
+@@ -21,15 +24,22 @@ import io.github.opencubicchunks.cubicchunks.world.level.CubicLevelTicks;
+ import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
+ import net.minecraft.core.BlockPos;
++import net.minecraft.core.SectionPos;
+ import net.minecraft.resources.ResourceKey;
+ import net.minecraft.server.MinecraftServer;
+ import net.minecraft.server.level.ServerChunkCache;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.TicketType;
+ import net.minecraft.server.level.progress.ChunkProgressListener;
++import net.minecraft.util.profiling.Profiler;
++import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.RandomSequences;
+ import net.minecraft.world.level.ChunkPos;
++import net.minecraft.world.level.block.state.BlockState;
++import net.minecraft.world.level.chunk.LevelChunk;
++import net.minecraft.world.level.chunk.LevelChunkSection;
+ import net.minecraft.world.level.dimension.LevelStem;
++import net.minecraft.world.level.material.FluidState;
+ import net.minecraft.world.level.storage.LevelStorageSource;
+ import net.minecraft.world.level.storage.ServerLevelData;
+ import net.minecraft.world.ticks.LevelTicks;
+@@ -71,6 +81,10 @@ public abstract class MixinServerLevel extends MixinLevel implements CubicServer
+     @TransformFromMethod("startTickingChunk(Lnet/minecraft/world/level/chunk/LevelChunk;)V")
+     public native void cc_startTickingClo(LevelClo chunk);
+ 
++    @AddTransformToSets(ChunkToCloSet.ServerLevel_redirects.class)
++    @TransformFromMethod("unload(Lnet/minecraft/world/level/chunk/LevelChunk;)V")
++    public native void cc_unloadClo(LevelClo clo);
++
+     @WrapOperation(method = "setDefaultSpawnPos", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerChunkCache;removeTic

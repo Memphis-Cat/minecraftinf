@@ -1,0 +1,75 @@
+ChunkProgressListener;
+@@ -178,9 +179,11 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
+     }
+ 
+     /**
+-     * Load a single cube at full status
++     * Load a single cube through the entire dependency pyramid. This remains a required manual
++     * integration gate, but is excluded from ordinary pull-request runs because it intentionally
++     * constructs the full cubic generation neighborhood.
+      */
+-//    @LongRunTest
++    @LongRunTest
+     @ExtendWith(EphemeralTestServerProvider.class)
+     @Test
+     public void singleFullCube(MinecraftServer server) throws Exception {
+diff --git a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java b/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
+index df96e9b..4bad989 100644
+--- a/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
++++ b/src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
+@@ -5,20 +5,31 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
+ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+ import static org.junit.jupiter.api.Assertions.assertThrows;
+ import static org.junit.jupiter.api.Assertions.assertTrue;
++import static org.mockito.ArgumentMatchers.any;
+ import static org.mockito.Mockito.mock;
+ import static org.mockito.Mockito.when;
+ 
+ import java.io.IOException;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
++import java.util.List;
+ 
+ import io.github.opencubicchunks.cc_core.api.CubePos;
+ import io.github.opencubicchunks.cubicchunks.testutils.BaseTest;
+ import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
+ import io.github.opencubicchunks.cubicchunks.world.storage.CubeStorage;
+ import net.minecraft.server.MinecraftServer;
++import net.minecraft.core.BlockPos;
++import net.minecraft.nbt.CompoundTag;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.world.level.block.Blocks;
++import net.minecraft.world.level.chunk.DataLayer;
++import net.minecraft.world.level.chunk.LevelChunkSection;
++import net.minecraft.world.level.chunk.UpgradeData;
++import net.minecraft.world.ticks.LevelChunkTicks;
++import net.minecraft.world.ticks.SavedTick;
++import net.minecraft.world.ticks.TickPriority;
++import it.unimi.dsi.fastutil.shorts.ShortArrayList;
+ import net.neoforged.testframework.junit.EphemeralTestServerProvider;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.extension.ExtendWith;
+@@ -46,6 +57,42 @@ public class TestCubeStorage extends BaseTest {
+         assertTrue(loaded.isLightCorrect());
+     }
+ 
++    @ExtendWith(EphemeralTestServerProvider.class)
++    @Test
++    public void runtimeMetadataSurvivesSaveAndLoad(MinecraftServer server, @TempDir Path temporaryDirectory) throws IOException {
++        ServerLevel level = createLevel(server);
++        CubePos cubePos = CubePos.of(-2, 3, 4);
++        BlockPos tickPos = cubePos.asBlockPos(2, 5, 7);
++        SavedTick<net.minecraft.world.level.block.Block> blockTick =
++                new SavedTick<>(Blocks.STONE, tickPos, 17, TickPriority.HIGH);
++        SavedTick<net.minecraft.world.level.material.Fluid> fluidTick =
++                new SavedTick<>(net.minecraft.world.level.material.Fluids.WATER, tickPos.above(), 9, TickPriority.LOW);
++        LevelCube original = new LevelCube(level, cubePos, UpgradeData.EMPTY, new LevelChunkTicks<>(List.of(blockTick)),
++                new LevelChunkTicks<>(List.of(fluidTick)), 42L, new LevelChunkSection[io.github.opencubicchunks.cc_core.api.CubicConstants.SECTION_COUNT],
++                null, null);
++
++        ShortArrayList offsets = new ShortArrayList();
++        offsets.add((short) 1234);
++        original.addPackedPostProcess(offsets, 0);
++        BlockPos blockEntityPos = cubePos.asBlockPos(3, 4, 5);
++        CompoundTag blockEntityTag = new CompoundTag();
++        blockEntityTag.putString("id", "minecraft:

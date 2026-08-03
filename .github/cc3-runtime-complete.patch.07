@@ -1,0 +1,78 @@
+
++import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.level.ServerLevel;
++import net.minecraft.world.level.LightLayer;
+ import net.minecraft.world.level.biome.Biome;
++import net.minecraft.world.level.block.Block;
++import net.minecraft.world.level.chunk.ChunkAccess;
++import net.minecraft.world.level.chunk.DataLayer;
+ import net.minecraft.world.level.chunk.LevelChunkSection;
+ import net.minecraft.world.level.chunk.UpgradeData;
++import net.minecraft.world.level.levelgen.structure.Structure;
++import net.minecraft.world.level.levelgen.structure.StructureStart;
++import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
++import net.minecraft.world.level.material.Fluid;
+ import net.minecraft.world.ticks.LevelChunkTicks;
++import net.minecraft.world.ticks.SavedTick;
++import net.minecraft.world.ticks.TickPriority;
+ 
+ /**
+- * Minimal versioned persistence for full cubes.
++ * Versioned and atomic persistence for full cubes.
+  * <p>
+- * This is the Phase 1 storage baseline. It deliberately stores one palette payload per cube so save/reload behavior can be verified before
+- * RegionLib batching, block entities, ticks, lighting, structures and heightmaps are added.
++ * Version 2 stores every cube-owned runtime payload: block/biome section palettes, pending block
++ * entities, scheduled block and fluid ticks, post-processing offsets, structure data, and queued
++ * sky/block light layers. Vanilla columns remain authoritative for global column heightmaps and
++ * POIs.
+  * </p>
+  */
+ public final class CubeStorage {
+     private static final int MAGIC = 0x43435542; // CCUB
+-    private static final int VERSION = 1;
++    private static final int VERSION_SECTIONS_ONLY = 1;
++    private static final int VERSION_COMPLETE = 2;
+     private static final int MAX_SERIALIZED_BYTES = 64 * 1024 * 1024;
++    private static final int MAX_COLLECTION_SIZE = 1_000_000;
+     private static final int REGION_SHIFT = 5;
+ 
+     private final Path root;
+@@ -62,29 +89,33 @@ public final class CubeStorage {
+     }
+ 
+     public synchronized void save(LevelCube cube) throws IOException {
++        if (!(cube.getLevel() instanceof ServerLevel level)) {
++            throw new IOException("Cannot persist a cube without a ServerLevel: " + cube.cc_getCubePos());
++        }
++
+         CubePos cubePos = cube.cc_getCubePos();
+         byte[] sectionData = serializeSections(cube);
+         Path destination = cubePath(cubePos);
+         Files.createDirectories(destination.getParent());
+         Path temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
+ 
+-        try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temporary)))) {
+-            output.writeInt(MAGIC);
+-            output.writeInt(VERSION);
+-            output.writeInt(cubePos.getX());
+-            output.writeInt(cubePos.getY());
+-            output.writeInt(cubePos.getZ());
+-            output.writeInt(CubicConstants.SECTION_COUNT);
+-            output.writeLong(cube.getInhabitedTime());
+-            output.writeBoolean(cube.isLightCorrect());
+-            output.writeInt(sectionData.length);
+-            output.write(sectionData);
+-        }
+-
+         try {
+-            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+-        } catch (AtomicMoveNotSupportedException ignored) {
+-            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
++            try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temporary)))) {
++                output.writeInt(MAGIC);
++                output.writeInt(VERSION_COMPLETE);
++                writeCommonHeader(output, cube, sectionData);
++                writePostProcessing(output, cube.getPostProcessing());
++                writeBlockEntities(output, cube, level);
++                ChunkAccess.PackedTicks ticks = cube.getTicks
