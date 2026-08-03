@@ -124,9 +124,19 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+def requireLinkedCore = tasks.register('requireLinkedCore') {
+    group = 'verification'
+    description = 'Verifies that CubicChunksCore was linked by .github/link-cubic-core.sh before Loom starts.'
+    doLast {
+        if (!linkedCoreJar.isFile() || linkedCoreJar.length() == 0L) {
+            throw new GradleException("Missing ${linkedCoreJar}. Build CubicChunksCore, then run .github/link-cubic-core.sh before Gradle.")
+        }
+    }
+}
+
 tasks.register('printMainCompileClasspath') {
     group = 'verification'
-    dependsOn ':headerLinker:linkCoreHeaders'
+    dependsOn requireLinkedCore
     doLast {
         println "loom.disableObfuscation=${loom.disableObfuscation()}"
         sourceSets.main.compileClasspath.files.toList().sort().each { println it }
@@ -148,8 +158,8 @@ tasks.register('genAll') {
 }
 
 sourceSets.main.resources.srcDir 'src/generated/resources'
-processResources.dependsOn tasks.named('genAll'), ':headerLinker:linkCoreHeaders'
-compileJava.dependsOn ':headerLinker:linkCoreHeaders'
+processResources.dependsOn tasks.named('genAll'), requireLinkedCore
+compileJava.dependsOn requireLinkedCore
 
 processResources {
     inputs.property 'version', project.version
