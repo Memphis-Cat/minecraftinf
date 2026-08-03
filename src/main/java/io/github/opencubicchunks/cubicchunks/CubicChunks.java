@@ -6,6 +6,7 @@ import io.github.opencubicchunks.cc_core.CubicChunksBase;
 import io.github.opencubicchunks.cc_core.config.EarlyConfig;
 import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cubicchunks.config.CommonConfig;
+import io.github.opencubicchunks.cubicchunks.network.CCNetworkHandler;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
@@ -16,11 +17,12 @@ public class CubicChunks extends CubicChunksBase implements ModInitializer {
     protected static CommonConfig config = null;
     public static final int SUPERFLAT_HEIGHT = 5;
 
-    @Override
-    public void onInitialize() {
+    @Override public void onInitialize() {
         ChunkMap.class.getName();
         EarlyConfig.getDiameterInSections();
         Coords.blockToIndex(new BlockPos(0, 0, 0));
+        config();
+        CCNetworkHandler.registerPayloadTypes();
 
         if (System.getProperty("cubicchunks.debug", "false").equalsIgnoreCase("true")) {
             try {
