@@ -4,10 +4,9 @@ on:
   pull_request:
     branches:
       - dev
-  workflow_dispatch:
 
 concurrency:
-  group: cubicchunks3-phase1-${{ github.event.pull_request.number || github.ref }}
+  group: cubicchunks3-phase1-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -15,13 +14,16 @@ permissions:
 
 jobs:
   validate-integrate:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/cubicchunks3-phase1'
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
-      - name: Check out feature branch and submodules
+      - name: Check out Phase 1 branch and submodules
         uses: actions/checkout@v4
         with:
-          ref: agent/cubicchunks3-phase1
+          ref: ${{ github.event.pull_request.head.ref }}
           submodules: recursive
           fetch-depth: 0
 
@@ -85,8 +87,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin agent/cubicchunks3-phase1
-          if [[ "$(git rev-parse origin/agent/cubicchunks3-phase1)" != "$BRANCH_START" ]]; then
+          git fetch origin "${{ github.event.pull_request.head.ref }}"
+          if [[ "$(git rev-parse origin/${{ github.event.pull_request.head.ref }})" != "$BRANCH_START" ]]; then
             echo "Feature branch moved during validation; refusing to overwrite it."
             exit 1
           fi
@@ -115,7 +117,7 @@ jobs:
           }
 
           git commit -m "Make cubic unload persistence shutdown-safe"
-          git push origin HEAD:agent/cubicchunks3-phase1
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
 
       - name: Upload validation diagnostics
         if: always()
