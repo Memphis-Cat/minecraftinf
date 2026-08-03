@@ -51,8 +51,8 @@ public class TestBlockCollisions extends BaseTest {
     @Test
     public void nonCubicCollisionGetterUsesVanillaPath() {
         CollisionGetter collisionGetter = mock(CollisionGetter.class);
-        assertDoesNotThrow(() -> new BlockCollisions<Void>(collisionGetter, (Entity) null, new AABB(0, 0, 0, 1, 1, 1), false,
-                (pos, voxelShape) -> null));
+        assertDoesNotThrow(
+                () -> new BlockCollisions<Void>(collisionGetter, (Entity) null, new AABB(0, 0, 0, 1, 1, 1), false, (pos, voxelShape) -> null));
     }
 
     @Test
