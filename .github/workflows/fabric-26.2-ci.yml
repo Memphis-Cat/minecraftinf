@@ -67,6 +67,42 @@ jobs:
           chmod +x gradlew
           ./gradlew printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
 
+      - name: Inspect Minecraft 26.2 classes
+        run: |
+          set -euo pipefail
+          minecraft_jar="$(find .gradle/loom-cache/minecraftMaven -type f -name 'minecraft-merged-*.jar' | head -n 1)"
+          test -n "$minecraft_jar"
+          {
+            echo "Minecraft jar: $minecraft_jar"
+            echo "Java runtime:"
+            java -version 2>&1
+            echo
+            echo "Manifest:"
+            unzip -p "$minecraft_jar" META-INF/MANIFEST.MF || true
+            echo
+            echo "Representative matching entries:"
+            jar tf "$minecraft_jar" | grep -E '(^|/)(BlockPos|Identifier|ResourceLocation|Level|ChunkAccess|StreamCodec|FriendlyByteBuf|CustomPacketPayload)\.class$' | sort | head -n 300 || true
+            echo
+            echo "First Minecraft class entries:"
+            jar tf "$minecraft_jar" | grep '^net/minecraft/.*\.class$' | sort | head -n 300 || true
+            echo
+            echo "Direct entry probes:"
+            for entry in \
+              net/minecraft/core/BlockPos.class \
+              net/minecraft/resources/Identifier.class \
+              net/minecraft/resources/ResourceLocation.class \
+              net/minecraft/world/level/Level.class \
+              net/minecraft/world/level/chunk/ChunkAccess.class \
+              net/minecraft/network/codec/StreamCodec.class \
+              net/minecraft/network/FriendlyByteBuf.class; do
+              if unzip -Z1 "$minecraft_jar" | grep -Fxq "$entry"; then
+                echo "FOUND $entry"
+              else
+                echo "MISSING $entry"
+              fi
+            done
+          } | tee fabric-minecraft-classes.log
+
       - name: Compile Fabric 26.2 sources
         run: |
           set -euo pipefail
@@ -121,6 +157,7 @@ jobs:
           path: |
             fabric-core-build.log
             fabric-classpath.log
+            fabric-minecraft-classes.log
             fabric-compile.log
             fabric-build.log
             fabric-server.log
