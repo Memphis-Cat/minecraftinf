@@ -1,0 +1,185 @@
+name: Fabric 26.2 Migration Gate
+
+on:
+  push:
+    branches:
+      - agent/cubicchunks3-fabric-26.2
+  workflow_dispatch:
+
+concurrency:
+  group: cubicchunks3-fabric-26.2-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-validate-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Check out port branch and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Apply Minecraft 26.2 migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BRANCH_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          python .github/inspect-minecraft-distribution.py
+          python .github/fabric-gradle9-migrate.py
+          python .github/fabric-api26-source-migrate.py
+          python .github/fabric-api26-finalize.py
+          python .github/fabric-api26-finalize.py
+          chmod +x gradlew .github/link-cubic-core.sh
+
+      - name: Set up Java 17 for CubicChunksCore
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build CubicChunksCore
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x CubicChunksCore/gradlew
+          ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
+          test -s CubicChunksCore/build/libs/CubicChunksCore.jar
+
+      - name: Restore Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Link core and resolve compile headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          .github/link-cubic-core.sh 2>&1 | tee fabric-migration-link.log
+          ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-migration-classpath.log
+          test -s build/fabric-header-libs/minecraft-client-access-widened.jar
+
+      - name: Compile Minecraft 26.2 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew compileJava --stacktrace --no-daemon 2>&1 | tee fabric-migration-compile.log
+
+      - name: Build Fabric jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-migration-build.log
+          jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -s "$jar_path"
+          jar tf "$jar_path" | sort > fabric-migration-jar.txt
+          grep -q 'fabric.mod.json' fabric-migration-jar.txt
+          grep -q 'cubicchunks.accesswidener' fabric-migration-jar.txt
+
+      - name: Start stop and restart dedicated server
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf run/fabric-26-2-migration-world
+          mkdir -p run
+          printf 'eula=true\n' > run/eula.txt
+          cat > run/server.properties <<'PROPERTIES'
+          online-mode=false
+          view-distance=2
+          simulation-distance=2
+          max-tick-time=-1
+          level-name=fabric-26-2-migration-world
+          motd=CubicChunks Fabric 26.2 Migration Gate
+          PROPERTIES
+
+          run_server() {
+            local log_file="$1"
+            : > "$log_file"
+            setsid ./gradlew runServer --stacktrace --no-daemon </dev/null >"$log_file" 2>&1 &
+            local group=$!
+            for _ in $(seq 1 360); do
+              if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' "$log_file"; then
+                kill -INT -- "-$group" >/dev/null 2>&1 || true
+                for _ in $(seq 1 120); do
+                  if ! kill -0 "$group" >/dev/null 2>&1; then
+                    wait "$group" >/dev/null 2>&1 || true
+                    return 0
+                  fi
+                  sleep 1
+                done
+                kill -TERM -- "-$group" >/dev/null 2>&1 || true
+                wait "$group" >/dev/null 2>&1 || true
+                return 1
+              fi
+              if ! kill -0 "$group" >/dev/null 2>&1; then
+                cat "$log_file"
+                wait "$group" || true
+                return 1
+              fi
+              sleep 1
+            done
+            cat "$log_file"
+            kill -TERM -- "-$group" >/dev/null 2>&1 || true
+            wait "$group" >/dev/null 2>&1 || true
+            return 1
+          }
+
+          run_server fabric-migration-server-first.log
+          test -d run/fabric-26-2-migration-world
+          find run/fabric-26-2-migration-world -type f -print | sort > fabric-migration-world-first.txt
+          test -s fabric-migration-world-first.txt
+          run_server fabric-migration-server-second.log
+          find run/fabric-26-2-migration-world -type f -print | sort > fabric-migration-world-second.txt
+          test -s fabric-migration-world-second.txt
+
+      - name: Commit fully validated migrated sources
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/cubicchunks3-fabric-26.2
+          if [[ "$(git rev-parse origin/agent/cubicchunks3-fabric-26.2)" != "$BRANCH_START" ]]; then
+            echo 'Port branch moved during validation; refusing to overwrite it.'
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add build.gradle src/main/java .github/widen-minecraft-headers.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Validated tree already contains the Minecraft 26.2 migration.'
+            exit 0
+          fi
+          git commit -m 'Migrate CubicChunks runtime to Minecraft 26.2 APIs'
+          git push origin HEAD:agent/cubicchunks3-fabric-26.2
+
+      - name: Upload migration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-26.2-migration-diagnostics
+          path: |
+            fabric-migration-*.log
+            fabric-migration-jar.txt
+            fabric-migration-world-*.txt
+            build/reports/
+            build/libs/
+            run/logs/
+            run/crash-reports/
+          if-no-files-found: ignore
+          retention-days: 7
