@@ -6,49 +6,30 @@ import io.github.opencubicchunks.cc_core.CubicChunksBase;
 import io.github.opencubicchunks.cc_core.config.EarlyConfig;
 import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cubicchunks.config.CommonConfig;
+import net.fabricmc.api.ModInitializer;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ChunkMap;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 
-/**
- * Requires Mixin BootStrap in order to use in forge.
- */
-@Mod("cubicchunks")
-public class CubicChunks extends CubicChunksBase {
-    /**
-     * true when running in a junit test, false otherwise.
-     */
+public class CubicChunks extends CubicChunksBase implements ModInitializer {
     public static boolean IS_IN_TEST = false;
     protected static CommonConfig config = null;
-    // For hardcoding height in P1
     public static final int SUPERFLAT_HEIGHT = 5;
 
-    public CubicChunks(IEventBus modEventBus) {
+    @Override
+    public void onInitialize() {
         ChunkMap.class.getName();
-//        if (!(CubeMap.class.isAssignableFrom(ChunkMap.class))) {
-//            throw new IllegalStateException("Mixin not applied!");
-//        }
         EarlyConfig.getDiameterInSections();
-
         Coords.blockToIndex(new BlockPos(0, 0, 0));
-//        ClassDuplicator.init();
+
         if (System.getProperty("cubicchunks.debug", "false").equalsIgnoreCase("true")) {
             try {
                 Class.forName("io.github.opencubicchunks.cubicchunks.debug.DebugVisualization").getMethod("enable").invoke(null);
                 SharedConstants.IS_RUNNING_IN_IDE = true;
-            } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException | ClassNotFoundException e) {
-                LOGGER.catching(e);
+            } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException | ClassNotFoundException exception) {
+                LOGGER.catching(exception);
             }
         }
-
-        modEventBus.addListener(this::commonSetup);
-    }
-
-    private void commonSetup(final FMLCommonSetupEvent event) {
-//        PacketDispatcher.register();
     }
 
     public static CommonConfig config() {
