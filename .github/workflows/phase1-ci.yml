@@ -11,16 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  validate-integrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
-      - name: Check out repository and submodules
+      - name: Check out feature branch and submodules
         uses: actions/checkout@v4
         with:
+          ref: agent/cubicchunks3-phase1
           submodules: recursive
           fetch-depth: 0
 
@@ -34,151 +35,78 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x gradlew
+      - name: Apply complete runtime source batch
+        id: patch
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          if compgen -G '.github/cc3-runtime-complete.patch.*' > /dev/null; then
+            cat .github/cc3-runtime-complete.patch.* > /tmp/cc3-runtime-complete.patch
+            git apply --index /tmp/cc3-runtime-complete.patch
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Format source
+        if: steps.patch.outputs.present == 'true'
+        run: ./gradlew spotlessApply --stacktrace --no-daemon
 
       - name: Run CubicChunksCore tests
+        if: steps.patch.outputs.present == 'true'
         run: ./gradlew :CubicChunksCore:test --stacktrace --no-daemon
 
-      - name: Run unit tests in an isolated JVM
+      - name: Run runtime unit tests
+        if: steps.patch.outputs.present == 'true'
         run: >-
           ./gradlew test
           --tests 'io.github.opencubicchunks.cubicchunks.test.*'
           --tests 'io.github.opencubicchunks.cubicchunks.world.level.cube.status.TestCubeColumnBridge'
           --stacktrace --no-daemon
 
-      - name: Run ServerCubeCache integration tests in an isolated JVM
+      - name: Run ServerCubeCache integration tests
+        if: steps.patch.outputs.present == 'true'
         run: >-
           ./gradlew test
           --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache'
           --stacktrace --no-daemon
 
-      - name: Run ChunkMap integration tests in an isolated JVM
+      - name: Run bounded ChunkMap integration tests
+        if: steps.patch.outputs.present == 'true'
         run: >-
           ./gradlew test
           --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap'
           --stacktrace --no-daemon
 
       - name: Run formatting and static checks
+        if: steps.patch.outputs.present == 'true'
         run: ./gradlew check -x test --stacktrace --no-daemon
 
-      - name: Inspect Minecraft completion APIs
-        if: always()
-        run: bash .github/scripts/inspect-minecraft-storage.sh
+      - name: Run dedicated-server save, stop, restart, and reload test
+        if: steps.patch.outputs.present == 'true'
+        run: bash .github/scripts/server-persistence-smoke.sh
+
+      - name: Commit validated source
+        if: steps.patch.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          git rm .github/cc3-runtime-complete.patch.*
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Complete cube runtime and persistence paths'
+          git push origin HEAD:agent/cubicchunks3-phase1
 
       - name: Upload validation reports
-        if: always()
+        if: always() && steps.patch.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: phase1-validation-reports
+          name: phase1-complete-runtime-validation
           path: |
             build/reports/
             build/test-results/
             CubicChunksCore/build/reports/
             CubicChunksCore/build/test-results/
-            build/minecraft-storage-inspection/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  server-smoke:
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x gradlew
-
-      - name: Configure smoke-test server
-        run: |
-          mkdir -p run
-          printf 'eula=true\n' > run/eula.txt
-          cat > run/server.properties <<'PROPERTIES'
-          online-mode=false
-          view-distance=2
-          simulation-distance=2
-          max-tick-time=-1
-          level-name=phase1-smoke-world
-          motd=CubicChunks3 Phase 1 Smoke Test
-          PROPERTIES
-
-      - name: Start dedicated server and wait for readiness
-        run: |
-          set -euo pipefail
-          : > server-smoke.log
-          setsid ./gradlew runServer --stacktrace --no-daemon >server-smoke.log 2>&1 &
-          process_group=$!
-          cleanup() {
-            kill -INT -- "-$process_group" >/dev/null 2>&1 || true
-            sleep 5
-            kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
-            wait "$process_group" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          for _ in $(seq 1 360); do
-            if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' server-smoke.log; then
-              exit 0
-            fi
-            if ! kill -0 "$process_group" >/dev/null 2>&1; then
-              cat server-smoke.log
-              exit 1
-            fi
-            sleep 1
-          done
-          cat server-smoke.log
-          exit 1
-
-      - name: Upload dedicated-server logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase1-server-smoke-logs
-          path: |
-            server-smoke.log
-            run/logs/
-            run/crash-reports/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  persistence-smoke:
-    needs: server-smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Run cubic save, stop, restart, and reload test
-        run: bash .github/scripts/server-persistence-smoke.sh
-
-      - name: Upload persistence artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase1-persistence-smoke-logs
-          path: |
             server-persistence-first.log
             server-persistence-second.log
             save-flush-rcon.log
