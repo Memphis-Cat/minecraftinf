@@ -1,0 +1,18 @@
+diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/access/common/ThreadedLevelLightEngineAccess.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/access/common/ThreadedLevelLightEngineAccess.java
+new file mode 100644
+index 000000000..678156bc5
+--- /dev/null
++++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/access/common/ThreadedLevelLightEngineAccess.java
+@@ -0,0 +1,12 @@
++package io.github.opencubicchunks.cubicchunks.mixin.access.common;
++
++import net.minecraft.server.level.ThreadedLevelLightEngine;
++import net.minecraft.world.level.ChunkPos;
++import org.spongepowered.asm.mixin.Mixin;
++import org.spongepowered.asm.mixin.gen.Invoker;
++
++@Mixin(ThreadedLevelLightEngine.class)
++public interface ThreadedLevelLightEngineAccess {
++    @Invoker("updateChunkStatus")
++    void cc_invokeUpdateChunkStatus(ChunkPos chunkPos);
++}
