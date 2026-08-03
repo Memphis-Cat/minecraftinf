@@ -17,7 +17,6 @@ import java.util.concurrent.CompletableFuture;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.api.CubicConstants;
-import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeLevel;
@@ -437,13 +436,19 @@ public class IntegrationTestServerCubeCache extends BaseTest {
         try (var serverChunkCacheRef = createServerChunkCache(false)) {
             var serverChunkCache = serverChunkCacheRef.value();
             var cubicServerChunkCache = ((ServerCubeCache) serverChunkCache);
-            int spawnRadius = Coords.sectionToCube(11);
-            cubicServerChunkCache.cc_addTicketWithRadius(TicketType.START, CloPos.cube(0, 0, 0), spawnRadius);
+            int ticketRadius = 1;
+            cubicServerChunkCache.cc_addTicketWithRadius(TicketType.START, CloPos.cube(0, 0, 0), ticketRadius);
             serverChunkCache.tick(() -> true, false);
-            var cubeAccess = cubicServerChunkCache.cc_getCube(0, 0, 0, ChunkStatus.FULL, true);
-            assertNotNull(cubeAccess);
-            assertTrue(cubeAccess.getPersistedStatus().isOrAfter(ChunkStatus.FULL));
-            assertInstanceOf(LevelCube.class, cubeAccess);
+
+            var centerCube = cubicServerChunkCache.cc_getCube(0, 0, 0, ChunkStatus.FULL, true);
+            assertNotNull(centerCube);
+            assertTrue(centerCube.getPersistedStatus().isOrAfter(ChunkStatus.FULL));
+            assertInstanceOf(LevelCube.class, centerCube);
+
+            ChunkStatus neighborStatus = CubeLevel.getStatusAroundFullCube(ticketRadius);
+            var neighborCube = cubicServerChunkCache.cc_getCube(ticketRadius, 0, 0, neighborStatus, false);
+            assertNotNull(neighborCube);
+            assertTrue(neighborCube.getPersistedStatus().isOrAfter(neighborStatus));
         }
     }
 }
