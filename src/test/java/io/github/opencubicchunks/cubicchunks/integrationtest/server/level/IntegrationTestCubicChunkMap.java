@@ -77,6 +77,7 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
             f.set(serverLevelMock, true);
             when(((CanBeCubic) serverLevelMock).cc_isCubic()).thenReturn(true);
         }
+        when(serverLevelMock.getMinY()).thenReturn(-64);
         when(serverLevelMock.getHeight()).thenReturn(384);
         when(serverLevelMock.getSectionsCount()).thenReturn(24);
         when(serverLevelMock.registryAccess()).thenReturn(registryAccess);
@@ -104,7 +105,7 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
     @ExtendWith(EphemeralTestServerProvider.class)
     @Test
     public void singleFullChunkVanilla(MinecraftServer server) throws Exception {
-        try (var serverChunkCacheRef = createServerChunkCache(false, server.registryAccess())) {
+        try (var serverChunkCacheRef = createServerChunkCache(true, server.registryAccess())) {
             var serverChunkCache = serverChunkCacheRef.value();
             var chunkMap = serverChunkCache.chunkMap;
 
@@ -223,7 +224,6 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
                 assertChunkCubeLoadOrder(chunkMap, chunksByCubeColumn, cubes);
                 ServerChunkCache.MainThreadExecutor mainThreadProcessor = ((ServerChunkCacheTestAccess) serverChunkCache).getMainThreadProcessor();
                 mainThreadProcessor.pollTask();
-                System.out.println(mainThreadProcessor.getPendingTasksCount());
             }
             var result = (ChunkResult<LevelCube>) (Object) future.get();
             assertTrue(result.isSuccess(), () -> "Full chunk future ChunkResult should be successful, but was " + result.getError());
