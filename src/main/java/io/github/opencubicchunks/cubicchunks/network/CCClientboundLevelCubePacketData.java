@@ -1,52 +1,78 @@
 package io.github.opencubicchunks.cubicchunks.network;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 
-// TODO block entities - see ClientboundLevelChunkPacketData
+/** Section palettes and block-entity update data for one full cube. */
 public class CCClientboundLevelCubePacketData {
-    private static final int TWO_MEGABYTES = 2097152;
+    private static final int TWO_MEGABYTES = 2_097_152;
+    private static final int MAX_BLOCK_ENTITIES = 65_536;
 
     private final byte[] buffer;
+    private final List<BlockEntityData> blockEntities;
 
     public static final StreamCodec<FriendlyByteBuf, CCClientboundLevelCubePacketData> STREAM_CODEC = new StreamCodec<>() {
-        public CCClientboundLevelCubePacketData decode(FriendlyByteBuf buffer) {
+        @Override public CCClientboundLevelCubePacketData decode(FriendlyByteBuf buffer) {
             return new CCClientboundLevelCubePacketData(buffer);
         }
 
-        public void encode(FriendlyByteBuf buffer, CCClientboundLevelCubePacketData data) {
+        @Override public void encode(FriendlyByteBuf buffer, CCClientboundLevelCubePacketData data) {
             data.write(buffer);
         }
     };
 
     public CCClientboundLevelCubePacketData(LevelCube cube) {
-        buffer = new byte[calculateChunkSize(cube)];
+        this.buffer = new byte[calculateChunkSize(cube)];
         extractChunkData(new FriendlyByteBuf(this.getWriteBuffer()), cube);
-    }
-
-    public CCClientboundLevelCubePacketData(final FriendlyByteBuf byteBuf) {
-        int i = byteBuf.readVarInt();
-        if (i > TWO_MEGABYTES) {
-            throw new RuntimeException("Cube Packet trying to allocate too much memory on read.");
-        } else {
-            this.buffer = new byte[i];
-            byteBuf.readBytes(this.buffer);
+        this.blockEntities = new ArrayList<>(cube.getBlockEntities().size());
+        for (BlockEntity blockEntity : cube.getBlockEntities().values()) {
+            this.blockEntities.add(BlockEntityData.create(blockEntity, cube.getLevel().registryAccess()));
         }
     }
 
-    public void write(final FriendlyByteBuf byteBuf) {
-        byteBuf.writeVarInt(this.buffer.length);
-        byteBuf.writeBytes(this.buffer);
+    public CCClientboundLevelCubePacketData(FriendlyByteBuf byteBuf) {
+        int byteCount = byteBuf.readVarInt();
+        if (byteCount < 0 || byteCount > TWO_MEGABYTES) {
+            throw new IllegalArgumentException("Cube packet payload is too large: " + byteCount);
+        }
+        this.buffer = new byte[byteCount];
+        byteBuf.readBytes(this.buffer);
+
+        int blockEntityCount = byteBuf.readVarInt();
+        if (blockEntityCount < 0 || blockEntityCount > MAX_BLOCK_ENTITIES) {
+            throw new IllegalArgumentException("Cube packet block-entity count is invalid: " + blockEntityCount);
+        }
+        this.blockEntities = new ArrayList<>(blockEntityCount);
+        for (int index = 0; index < blockEntityCount; ++index) {
+            this.blockEntities.add(BlockEntityData.read(byteBuf));
+        }
     }
 
-    // TODO could maybe dasm copy these from ClientboundLevelChunkPacketData?
+    public void write(FriendlyByteBuf byteBuf) {
+        byteBuf.writeVarInt(this.buffer.length);
+        byteBuf.writeBytes(this.buffer);
+        byteBuf.writeVarInt(this.blockEntities.size());
+        for (BlockEntityData blockEntity : this.blockEntities) {
+            blockEntity.write(byteBuf);
+        }
+    }
+
     private ByteBuf getWriteBuffer() {
         ByteBuf bytebuf = Unpooled.wrappedBuffer(this.buffer);
         bytebuf.writerIndex(0);
@@ -54,19 +80,16 @@ public class CCClientboundLevelCubePacketData {
     }
 
     private static int calculateChunkSize(LevelCube cube) {
-        int i = 0;
-
-        for (LevelChunkSection levelchunksection : cube.getSections()) {
-            i += levelchunksection.getSerializedSize();
+        int size = 0;
+        for (LevelChunkSection section : cube.getSections()) {
+            size = Math.addExact(size, section.getSerializedSize());
         }
-
-        return i;
+        return size;
     }
 
-    // TODO could dasm-copy this from ClientboundLevelChunkPacketData
     public static void extractChunkData(FriendlyByteBuf buffer, LevelCube cube) {
-        for (LevelChunkSection levelchunksection : cube.getSections()) {
-            levelchunksection.write(buffer);
+        for (LevelChunkSection section : cube.getSections()) {
+            section.write(buffer);
         }
 
         if (buffer.writerIndex() != buffer.capacity()) {
@@ -78,16 +101,49 @@ public class CCClientboundLevelCubePacketData {
         return new FriendlyByteBuf(Unpooled.wrappedBuffer(this.buffer));
     }
 
-    // Implement .equals for unit testing
-    @Override public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) {
+    public Consumer<ClientboundLevelChunkPacketData.BlockEntityTagOutput> getBlockEntitiesTagsConsumer() {
+        return output -> {
+            for (BlockEntityData blockEntity : this.blockEntities) {
+                output.accept(blockEntity.position(), blockEntity.type(), blockEntity.tag().copy());
+            }
+        };
+    }
+
+    @Override public boolean equals(Object other) {
+        if (!(other instanceof CCClientboundLevelCubePacketData that)) {
             return false;
         }
-        CCClientboundLevelCubePacketData that = (CCClientboundLevelCubePacketData) o;
-        return Objects.deepEquals(buffer, that.buffer);
+        return Arrays.equals(this.buffer, that.buffer) && this.blockEntities.equals(that.blockEntities);
     }
 
     @Override public int hashCode() {
-        return Arrays.hashCode(buffer);
+        return Objects.hash(Arrays.hashCode(this.buffer), this.blockEntities);
+    }
+
+    private record BlockEntityData(BlockPos position, BlockEntityType<?> type, CompoundTag tag) {
+        private static BlockEntityData create(BlockEntity blockEntity, net.minecraft.core.HolderLookup.Provider registries) {
+            return new BlockEntityData(blockEntity.getBlockPos(), blockEntity.getType(), blockEntity.getUpdateTag(registries));
+        }
+
+        private static BlockEntityData read(FriendlyByteBuf buffer) {
+            BlockPos position = buffer.readBlockPos();
+            int typeId = buffer.readVarInt();
+            BlockEntityType<?> type = BuiltInRegistries.BLOCK_ENTITY_TYPE.byId(typeId);
+            if (type == null) {
+                throw new IllegalArgumentException("Unknown block entity type id " + typeId);
+            }
+            CompoundTag tag = buffer.readNbt();
+            return new BlockEntityData(position, type, tag == null ? new CompoundTag() : tag);
+        }
+
+        private void write(FriendlyByteBuf buffer) {
+            int typeId = BuiltInRegistries.BLOCK_ENTITY_TYPE.getId(this.type);
+            if (typeId < 0) {
+                throw new IllegalStateException("Unregistered block entity type " + this.type);
+            }
+            buffer.writeBlockPos(this.position);
+            buffer.writeVarInt(typeId);
+            buffer.writeNbt(this.tag);
+        }
     }
 }
