@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# This fixture mirrors the vanilla generator futures used by cubic generation.
 path = Path("src/test/java/io/github/opencubicchunks/cubicchunks/integrationtest/server/level/IntegrationTestServerCubeCache.java")
 text = path.read_text()
 old = '''        if (vanillaTest) {
