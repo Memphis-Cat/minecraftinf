@@ -44,8 +44,29 @@ prepare = """def prepareMinecraftCompileHeaders = tasks.register('prepareMinecra
 """
 if 'def prepareMinecraftCompileHeaders' not in text:
     text = text.replace("tasks.register('printMainCompileClasspath') {\n", prepare + "tasks.register('printMainCompileClasspath') {\n")
+classpath_fix = """// Loom 1.17 currently contributes a resources-only merged-deobf 26.2 jar before
+// Mojang's complete public client jar. Remove that incomplete artifact from every
+// javac task and put the access-widened complete jar first so javac sees the same
+// API that Fabric launches at runtime.
+tasks.withType(JavaCompile).configureEach {
+    dependsOn prepareMinecraftCompileHeaders
+    doFirst {
+        def normalizedWidenedPath = widenedMinecraftClientJar.canonicalPath
+        def filteredClasspath = classpath.filter { candidate ->
+            def normalized = candidate.canonicalPath.replace('\\\\', '/')
+            candidate.canonicalPath != normalizedWidenedPath &&
+                    !(candidate.name.startsWith('minecraft-merged-deobf-') && normalized.contains('/fabric-loom/minecraftMaven/'))
+        }
+        classpath = files(widenedMinecraftClientJar) + filteredClasspath
+    }
+}
+
+"""
+if 'Loom 1.17 currently contributes a resources-only merged-deobf 26.2 jar' not in text:
+    text = text.replace("tasks.register('printMainCompileClasspath') {\n", classpath_fix + "tasks.register('printMainCompileClasspath') {\n")
 text = text.replace('    dependsOn requireLinkedCore, requireRawMinecraftClient\n', '    dependsOn requireLinkedCore, prepareMinecraftCompileHeaders\n')
 text = text.replace('compileJava.dependsOn requireLinkedCore, requireRawMinecraftClient\n', 'compileJava.dependsOn requireLinkedCore, prepareMinecraftCompileHeaders\n')
+text = text.replace('    enabled = false\n', '')
 write(path, text)
 
 path = 'src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/MixinMinecraftServer.java'
