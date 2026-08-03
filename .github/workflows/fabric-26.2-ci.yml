@@ -90,16 +90,29 @@ jobs:
       - name: Inspect Loom Minecraft artifacts
         run: |
           set -euo pipefail
+          cache_roots=("$HOME/.gradle/caches/fabric-loom" ".gradle/loom-cache")
           : > fabric-minecraft-classes.log
-          find .gradle/loom-cache -type f -name '*.jar' -print0 | while IFS= read -r -d '' jar_path; do
+          find "${cache_roots[@]}" -type f -name '*.jar' -print0 2>/dev/null |
+          while IFS= read -r -d '' jar_path; do
             size="$(stat -c '%s' "$jar_path")"
             entries="$(unzip -Z1 "$jar_path" 2>/dev/null | wc -l || true)"
             classes="$(unzip -Z1 "$jar_path" 2>/dev/null | grep -c '\.class$' || true)"
             printf '%s entries=%s classes=%s %s\n' "$size" "$entries" "$classes" "$jar_path"
           done | sort -n | tee fabric-minecraft-classes.log
-          minecraft_jar="$(find .gradle/loom-cache/minecraftMaven -type f -name 'minecraft-merged-*.jar' -print -quit)"
+
+          minecraft_jar=''
+          while IFS= read -r candidate; do
+            class_count="$(unzip -Z1 "$candidate" 2>/dev/null | grep -c '\.class$' || true)"
+            if (( class_count > 10000 )); then
+              minecraft_jar="$candidate"
+              break
+            fi
+          done < <(find "${cache_roots[@]}" -type f \( -name 'minecraft-merged-deobf-*.jar' -o -name 'minecraft-merged-*.jar' \) -print 2>/dev/null | sort -u)
+
           test -n "$minecraft_jar"
-          test "$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')" -gt 10000
+          class_count="$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')"
+          printf 'Selected Minecraft jar: %s (%s classes)\n' "$minecraft_jar" "$class_count" | tee -a fabric-minecraft-classes.log
+          test "$class_count" -gt 10000
 
       - name: Compile Fabric 26.2 sources
         run: |
