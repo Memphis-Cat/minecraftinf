@@ -42,11 +42,14 @@ jobs:
 
       - name: Compile Fabric 26.2 sources
         run: |
+          set -euo pipefail
           chmod +x gradlew
           ./gradlew compileJava --stacktrace --no-daemon 2>&1 | tee fabric-compile.log
 
       - name: Build Fabric jar
-        run: ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
+        run: |
+          set -euo pipefail
+          ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
 
       - name: Start Fabric dedicated server
         run: |
