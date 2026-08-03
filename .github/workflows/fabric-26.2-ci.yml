@@ -19,7 +19,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 60
     steps:
       - name: Check out repository and submodules
         uses: actions/checkout@v4
@@ -32,10 +32,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
+
+      - name: Inspect Mojang's Minecraft 26.2 distribution
+        run: python .github/inspect-minecraft-distribution.py
 
       - name: Migrate custom generators to Gradle 9
         run: python .github/fabric-gradle9-migrate.py
@@ -45,80 +47,49 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Build CubicChunksCore before Loom configuration
+      - name: Build CubicChunksCore
         run: |
           set -euo pipefail
           chmod +x CubicChunksCore/gradlew
           ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble --stacktrace --no-daemon 2>&1 | tee fabric-core-build.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
 
-      - name: Restore Java 25 for Minecraft 26.2
+      - name: Restore Java 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+
+      - name: Purge stale Loom snapshots
+        run: |
+          rm -rf .gradle/loom-cache
+          rm -rf ~/.gradle/caches/fabric-loom
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loom
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loom.gradle.plugin
+          rm -rf ~/.gradle/caches/modules-2/metadata-*/descriptors/net.fabricmc/fabric-loom*
+
+      - name: Verify a clean standalone Loom 1.17 setup
+        run: |
+          chmod +x .github/fabric-loom-probe.sh
+          .github/fabric-loom-probe.sh
 
       - name: Resolve Fabric compile classpath
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
+          ./gradlew --refresh-dependencies printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
 
-      - name: Verify the official standalone Loom 26.2 template
-        run: |
-          chmod +x .github/fabric-loom-probe.sh
-          .github/fabric-loom-probe.sh
-
-      - name: Inspect Minecraft 26.2 classes
+      - name: Inspect Loom Minecraft artifacts
         run: |
           set -euo pipefail
-          minecraft_jar="$(find .gradle/loom-cache/minecraftMaven -type f -name 'minecraft-merged-*.jar' | head -n 1)"
-          test -n "$minecraft_jar"
-          {
-            echo "Minecraft jar: $minecraft_jar"
-            ls -lh "$minecraft_jar"
-            file "$minecraft_jar"
-            sha256sum "$minecraft_jar"
-            echo "Total entries: $(unzip -Z1 "$minecraft_jar" | wc -l)"
-            echo "Class entries: $(unzip -Z1 "$minecraft_jar" | grep -c '\\.class$' || true)"
-            echo
-            echo "First jar entries:"
-            unzip -Z1 "$minecraft_jar" | head -n 300 || true
-            echo
-            echo "Java runtime:"
-            java -version 2>&1
-            echo
-            echo "Manifest:"
-            unzip -p "$minecraft_jar" META-INF/MANIFEST.MF || true
-            echo
-            echo "First class entries in the jar:"
-            jar tf "$minecraft_jar" | grep '\.class$' | head -n 300 || true
-            echo
-            echo "Representative matching entries:"
-            jar tf "$minecraft_jar" | grep -E '(^|/)(BlockPos|Identifier|ResourceLocation|Level|ChunkAccess|StreamCodec|FriendlyByteBuf|CustomPacketPayload)\.class$' | sort | head -n 300 || true
-            echo
-            echo "First net/minecraft class entries:"
-            jar tf "$minecraft_jar" | grep '^net/minecraft/.*\.class$' | sort | head -n 300 || true
-            echo
-            echo "Direct entry probes:"
-            for entry in \
-              net/minecraft/core/BlockPos.class \
-              net/minecraft/resources/Identifier.class \
-              net/minecraft/resources/ResourceLocation.class \
-              net/minecraft/world/level/Level.class \
-              net/minecraft/world/level/chunk/ChunkAccess.class \
-              net/minecraft/network/codec/StreamCodec.class \
-              net/minecraft/network/FriendlyByteBuf.class; do
-              if unzip -Z1 "$minecraft_jar" | grep -Fxq "$entry"; then
-                echo "FOUND $entry"
-              else
-                echo "MISSING $entry"
-              fi
-            done
-          } | tee fabric-minecraft-classes.log
+          : > fabric-minecraft-classes.log
+          find .gradle/loom-cache -type f -name '*.jar' -print0 | while IFS= read -r -d '' jar_path; do
+            size="$(stat -c '%s' "$jar_path")"
+            entries="$(unzip -Z1 "$jar_path" 2>/dev/null | wc -l || true)"
+            classes="$(unzip -Z1 "$jar_path" 2>/dev/null | grep -c '\.class$' || true)"
+            printf '%s entries=%s classes=%s %s\n' "$size" "$entries" "$classes" "$jar_path"
+          done | sort -n | tee fabric-minecraft-classes.log
 
       - name: Compile Fabric 26.2 sources
         run: |
@@ -129,8 +100,9 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
+          test -n "$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
 
-      - name: Start Fabric dedicated server
+      - name: Start, stop, and restart Fabric dedicated server
         run: |
           set -euo pipefail
           mkdir -p run
@@ -141,30 +113,49 @@ jobs:
           simulation-distance=2
           max-tick-time=-1
           level-name=fabric-26-2-smoke-world
-          motd=CubicChunks Fabric 26.2 Smoke Test
+          motd=CubicChunks Fabric 26.2 Persistence Test
           PROPERTIES
-          : > fabric-server.log
-          setsid ./gradlew runServer --stacktrace --no-daemon >fabric-server.log 2>&1 &
-          process_group=$!
-          cleanup() {
-            kill -INT -- "-$process_group" >/dev/null 2>&1 || true
-            sleep 3
+
+          run_server() {
+            local log_file="$1"
+            : > "$log_file"
+            setsid ./gradlew runServer --stacktrace --no-daemon >"$log_file" 2>&1 &
+            local process_group=$!
+            for _ in $(seq 1 360); do
+              if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' "$log_file"; then
+                kill -INT -- "-$process_group" >/dev/null 2>&1 || true
+                for _ in $(seq 1 120); do
+                  if ! kill -0 "$process_group" >/dev/null 2>&1; then
+                    wait "$process_group" >/dev/null 2>&1 || true
+                    return 0
+                  fi
+                  sleep 1
+                done
+                kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
+                wait "$process_group" >/dev/null 2>&1 || true
+                echo 'Server did not stop cleanly' >&2
+                return 1
+              fi
+              if ! kill -0 "$process_group" >/dev/null 2>&1; then
+                cat "$log_file"
+                wait "$process_group" || true
+                return 1
+              fi
+              sleep 1
+            done
+            cat "$log_file"
             kill -TERM -- "-$process_group" >/dev/null 2>&1 || true
             wait "$process_group" >/dev/null 2>&1 || true
+            return 1
           }
-          trap cleanup EXIT
-          for _ in $(seq 1 360); do
-            if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' fabric-server.log; then
-              exit 0
-            fi
-            if ! kill -0 "$process_group" >/dev/null 2>&1; then
-              cat fabric-server.log
-              exit 1
-            fi
-            sleep 1
-          done
-          cat fabric-server.log
-          exit 1
+
+          run_server fabric-server-first.log
+          test -d run/fabric-26-2-smoke-world
+          find run/fabric-26-2-smoke-world -type f -print | sort > fabric-world-first.txt
+          test -s fabric-world-first.txt
+          run_server fabric-server-second.log
+          find run/fabric-26-2-smoke-world -type f -print | sort > fabric-world-second.txt
+          test -s fabric-world-second.txt
 
       - name: Create exact source snapshot
         if: always()
@@ -183,14 +174,18 @@ jobs:
         with:
           name: fabric-26.2-port-diagnostics
           path: |
+            fabric-minecraft-distribution.log
             fabric-core-build.log
-            fabric-classpath.log
             fabric-standalone-loom-probe.log
             fabric-standalone-loom-jars.log
+            fabric-classpath.log
             fabric-minecraft-classes.log
             fabric-compile.log
             fabric-build.log
-            fabric-server.log
+            fabric-server-first.log
+            fabric-server-second.log
+            fabric-world-first.txt
+            fabric-world-second.txt
             fabric-port-source.tar.gz
             build/reports/
             build/libs/
