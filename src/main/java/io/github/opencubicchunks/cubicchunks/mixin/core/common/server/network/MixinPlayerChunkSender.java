@@ -19,6 +19,7 @@ import io.github.opencubicchunks.cubicchunks.world.entity.EntityCubePosGetter;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.protocol.game.ClientboundChunkBatchFinishedPacket;
 import net.minecraft.network.protocol.game.ClientboundChunkBatchStartPacket;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
@@ -28,7 +29,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.PlayerChunkSender;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.spongepowered.asm.mixin.Dynamic;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -59,7 +59,7 @@ public class MixinPlayerChunkSender {
     @AddMethodToSets(containers = ChunkToCloSet.PlayerChunkSender_redirects.class, method = "dropChunk(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;)V")
     public void cc_dropClo(ServerPlayer player, CloPos cloPos) {
         if (!this.pendingChunks.remove(cloPos.toLong()) && player.isAlive()) {
-            PacketDistributor.sendToPlayer(player, new CCClientboundForgetLevelCloPacket(cloPos));
+            ServerPlayNetworking.send(player, new CCClientboundForgetLevelCloPacket(cloPos));
         }
     }
 
@@ -74,39 +74,29 @@ public class MixinPlayerChunkSender {
         if (this.unacknowledgedBatches < this.maxUnacknowledgedBatches) {
             float f = Math.max(1.0F, this.desiredChunksPerTick);
             this.batchQuota = Math.min(this.batchQuota + this.desiredChunksPerTick, f);
-            if (!(this.batchQuota < 1.0F)) {
-                if (!this.pendingChunks.isEmpty()) {
-                    ServerLevel serverlevel = player.level();
-                    ChunkMap chunkmap = serverlevel.getChunkSource().chunkMap;
-                    List<LevelClo> list = this.cc_collectChunksToSend(chunkmap, CloPos.cube(((EntityCubePosGetter) player).cc_cubePosition()));
-                    if (!list.isEmpty()) {
-                        ServerGamePacketListenerImpl servergamepacketlistenerimpl = player.connection;
-                        ++this.unacknowledgedBatches;
+            if (!(this.batchQuota < 1.0F) && !this.pendingChunks.isEmpty()) {
+                ServerLevel serverlevel = player.level();
+                ChunkMap chunkmap = serverlevel.getChunkSource().chunkMap;
+                List<LevelClo> list = this.cc_collectChunksToSend(chunkmap, CloPos.cube(((EntityCubePosGetter) player).cc_cubePosition()));
+                if (!list.isEmpty()) {
+                    ServerGamePacketListenerImpl servergamepacketlistenerimpl = player.connection;
+                    ++this.unacknowledgedBatches;
+                    servergamepacketlistenerimpl.send(ClientboundChunkBatchStartPacket.INSTANCE);
 
-                        // This packet can remain the same because it is just for timing purposes in order to determine how many chunks (or cubes) the
-                        // client should request
-                        servergamepacketlistenerimpl.send(ClientboundChunkBatchStartPacket.INSTANCE);
-
-                        // TODO P2 :: We need to send heightmap and lighting data, which would be contained in the Column
-
-                        // We need to send the chunks first before cubes, to ensure that load order invariants are preserved
-                        for (LevelClo levelClo : list) {
-                            if (levelClo instanceof LevelChunk) {
-                                cc_sendChunk(servergamepacketlistenerimpl, serverlevel, (LevelChunk) levelClo);
-                            }
+                    for (LevelClo levelClo : list) {
+                        if (levelClo instanceof LevelChunk levelChunk) {
+                            cc_sendChunk(servergamepacketlistenerimpl, serverlevel, levelChunk);
                         }
-
-                        for (LevelClo levelClo : list) {
-                            if (levelClo instanceof LevelCube) {
-                                cc_sendCube(servergamepacketlistenerimpl, serverlevel, (LevelCube) levelClo);
-                            }
-                        }
-
-                        // This packet can remain the same because it is just for timing purposes in order to determine how many chunks (or cubes) the
-                        // client should request
-                        servergamepacketlistenerimpl.send(new ClientboundChunkBatchFinishedPacket(list.size()));
-                        this.batchQuota -= (float) list.size();
                     }
+
+                    for (LevelClo levelClo : list) {
+                        if (levelClo instanceof LevelCube levelCube) {
+                            cc_sendCube(servergamepacketlistenerimpl, serverlevel, levelCube);
+                        }
+                    }
+
+                    servergamepacketlistenerimpl.send(new ClientboundChunkBatchFinishedPacket(list.size()));
+                    this.batchQuota -= (float) list.size();
                 }
             }
         }
@@ -114,28 +104,12 @@ public class MixinPlayerChunkSender {
 
     @Unique
     private static void cc_sendCube(ServerGamePacketListenerImpl packetListener, ServerLevel level, LevelCube cube) {
-        PacketDistributor.sendToPlayer(packetListener.player, new CCClientboundLevelCubeWithLightPacket(cube));
-
-        // ChunkPos chunkpos = chunk.getPos();
-
-        // TODO :: Probably never (its for vanilla debug tools)
-        // DebugPackets.sendPoiPacketsForChunk(level, chunkpos);
-
-        // TODO P3 :: We need our own fireCubeSent event for this
-        // net.neoforged.neoforge.event.EventHooks.fireChunkSent(packetListener.player, chunk, level);
+        ServerPlayNetworking.send(packetListener.player, new CCClientboundLevelCubeWithLightPacket(cube));
     }
 
     @Unique
     private static void cc_sendChunk(ServerGamePacketListenerImpl packetListener, ServerLevel level, LevelChunk chunk) {
         packetListener.send(new ClientboundLevelChunkWithLightPacket(chunk, level.getLightEngine(), null, null));
-
-        // ChunkPos chunkpos = chunk.getPos();
-
-        // TODO :: Probably never (its for vanilla debug tools)
-        // DebugPackets.sendPoiPacketsForChunk(level, chunkpos);
-
-        // TODO P3 :: We need our own fireChunkSent event for this
-        // net.neoforged.neoforge.event.EventHooks.fireChunkSent(packetListener.player, chunk, level);
     }
 
     @TransformFromMethod(value = "collectChunksToSend(Lnet/minecraft/server/level/ChunkMap;Lnet/minecraft/world/level/ChunkPos;)Ljava/util/List;")
