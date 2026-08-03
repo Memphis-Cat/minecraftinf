@@ -33,6 +33,9 @@ jobs:
       - name: Fix integration generator fixture
         run: python .github/scripts/fix-runtime-tests.py
 
+      - name: Fix runtime access contracts and test invariants
+        run: python .github/scripts/fix-runtime-access.py
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -53,8 +56,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat >/tmp/runtime-test-logging.gradle <<'GRADLE'
+          allprojects {
+            tasks.withType(Test).configureEach {
+              testLogging {
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showCauses = true
+                showStackTraces = true
+              }
+            }
+          }
+          GRADLE
           : > runtime-test.log
-          setsid ./gradlew test --stacktrace --no-daemon >runtime-test.log 2>&1 &
+          setsid ./gradlew test -I /tmp/runtime-test-logging.gradle --stacktrace --no-daemon >runtime-test.log 2>&1 &
           process_group=$!
 
           terminate_group() {
@@ -62,9 +76,23 @@ jobs:
             sleep 3
             kill -KILL -- "-$process_group" >/dev/null 2>&1 || true
           }
+          dump_threads() {
+            ps -eo pid,ppid,pgid,stat,etime,cmd > runtime-test-processes.txt
+            for pid in $(jps -q 2>/dev/null || true); do
+              jcmd "$pid" Thread.print -l > "runtime-test-thread-${pid}.txt" 2>&1 || true
+            done
+          }
           trap terminate_group EXIT
 
           for _ in $(seq 1 600); do
+            if grep -Eq '^[^[:space:]].* FAILED$|^> Task :test FAILED$' runtime-test.log; then
+              sleep 5
+              dump_threads
+              cat runtime-test.log
+              terminate_group
+              trap - EXIT
+              exit 1
+            fi
             if ! kill -0 "$process_group" >/dev/null 2>&1; then
               wait "$process_group"
               trap - EXIT
@@ -73,10 +101,7 @@ jobs:
             sleep 1
           done
 
-          ps -eo pid,ppid,pgid,stat,etime,cmd > runtime-test-processes.txt
-          for pid in $(jps -q 2>/dev/null || true); do
-            jcmd "$pid" Thread.print -l > "runtime-test-thread-${pid}.txt" 2>&1 || true
-          done
+          dump_threads
           echo 'Runtime tests exceeded ten minutes.' >&2
           terminate_group
           trap - EXIT
@@ -90,6 +115,7 @@ jobs:
 
       - name: Commit validated runtime implementation
         run: |
+          rm -f .github/runtime-completion.patch                 .github/scripts/apply-runtime-completion.py                 .github/scripts/fix-runtime-tests.py                 .github/scripts/fix-runtime-access.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
