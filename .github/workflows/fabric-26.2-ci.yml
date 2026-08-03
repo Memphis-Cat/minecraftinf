@@ -61,10 +61,15 @@ jobs:
           java-version: '25'
           cache: gradle
 
-      - name: Compile Fabric 26.2 sources
+      - name: Resolve Fabric compile classpath
         run: |
           set -euo pipefail
           chmod +x gradlew
+          ./gradlew printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
+
+      - name: Compile Fabric 26.2 sources
+        run: |
+          set -euo pipefail
           ./gradlew compileJava --stacktrace --no-daemon 2>&1 | tee fabric-compile.log
 
       - name: Build Fabric jar
@@ -115,6 +120,7 @@ jobs:
           name: fabric-26.2-port-diagnostics
           path: |
             fabric-core-build.log
+            fabric-classpath.log
             fabric-compile.log
             fabric-build.log
             fabric-server.log
