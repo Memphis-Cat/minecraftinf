@@ -42,7 +42,7 @@ public final class CubeColumnBridge {
                 int chunkX = Coords.cubeToSection(cubePos.getX(), localX);
                 int chunkZ = Coords.cubeToSection(cubePos.getZ(), localZ);
                 ChunkHolder holder = ((CubicChunkMap) context.level().getChunkSource().chunkMap)
-                        .cc_getVisibleChunkIfPresent(ChunkPos.asLong(chunkX, chunkZ));
+                        .cc_getVisibleChunkIfPresent(new ChunkPos(chunkX, chunkZ).pack());
                 ChunkAccess column = holder == null ? null : holder.getChunkIfPresentUnchecked(requiredStatus);
                 if (column == null) {
                     throw new IllegalStateException("Scheduled vanilla column " + new ChunkPos(chunkX, chunkZ) + " was unavailable at "
