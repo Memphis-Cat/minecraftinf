@@ -104,6 +104,8 @@ configurations {
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+
     implementation "net.fabricmc:fabric-loader:${loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     implementation "io.github.llamalad7:mixinextras-fabric:${mixinextras_version}"
@@ -116,6 +118,7 @@ dependencies {
     }
 
     compileOnly 'io.github.notstirred:dasm:3.2.0:api'
+    compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
 
     libraries 'io.github.opencubicchunks:regionlib:0.63.0-SNAPSHOT'
     libraries 'org.spongepowered:noise:2.0.0-SNAPSHOT'
