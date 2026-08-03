@@ -245,8 +245,8 @@ public interface ClientLevelAccess {
 
 write('src/main/java/io/github/opencubicchunks/cubicchunks/mixin/access/client/ViewAreaAccess.java', '''package io.github.opencubicchunks.cubicchunks.mixin.access.client;
 
-import net.minecraft.client.renderer.SectionRenderDispatcher;
 import net.minecraft.client.renderer.ViewArea;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
 import net.minecraft.world.level.Level;
 import org.jspecify.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
