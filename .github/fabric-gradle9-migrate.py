@@ -7,9 +7,26 @@ for relative in (
     path = Path(relative)
     text = path.read_text(encoding="utf-8")
     if "JavaPluginConvention" in text:
-        path.write_text(text.replace("JavaPluginConvention", "JavaPluginExtension"), encoding="utf-8")
+        text = text.replace("JavaPluginConvention", "JavaPluginExtension")
     elif "JavaPluginExtension" not in text:
         raise SystemExit(f"Expected Gradle Java plugin API use was not found in {relative}")
+
+    if relative.endswith("MixinGenExtension.java"):
+        broken = """        convention.getSourceSets().forEach(sourceSet -> {
+            Map<String, Action<MixinConfig>> configs = configsBySourceSet.get(sourceSet);
+            if (configs == null) {
+                throw new RuntimeException("No mixin config was registered for source set " + sourceSet);
+            }
+
+"""
+        fixed = """        configsBySourceSet.forEach((sourceSet, configs) -> {
+"""
+        if broken in text:
+            text = text.replace(broken, fixed, 1)
+        elif fixed not in text:
+            raise SystemExit("Could not make mixin generation ignore unconfigured source sets")
+
+    path.write_text(text, encoding="utf-8")
 
 # Gradle 9 no longer delegates these Java Action closures to their action
 # parameter when the closure omits an explicit parameter. Bind every generated
