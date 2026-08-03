@@ -260,7 +260,7 @@ public interface ViewAreaAccess {
 path = 'src/main/java/io/github/opencubicchunks/cubicchunks/client/multiplayer/ClientCubeCache.java'
 text = read(path)
 text = ensure_import(text, 'import io.github.opencubicchunks.cubicchunks.mixin.access.client.ClientLevelAccess;\n',
-                     'import io.github.opencubicchunks.cubicchunks.client.renderer.CubicLevelRenderer;\n')
+                     'import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;\n')
 text = text.replace('this.level.onSectionBecomingNonEmpty(i);',
                     '((ClientLevelAccess) (Object) this.level).cc_invokeOnSectionBecomingNonEmpty(i);')
 text = text.replace('this.level.onSectionBecomingNonEmpty(sectionPosLong);',
