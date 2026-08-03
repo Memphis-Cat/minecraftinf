@@ -16,7 +16,7 @@ permissions:
 jobs:
   migrate-validate-commit:
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 120
     steps:
       - name: Check out port branch and submodules
         uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Apply Minecraft 26.2 migrations
+      - name: Apply deterministic Minecraft 26.2 migrations
         shell: bash
         run: |
           set -euo pipefail
@@ -51,12 +51,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build CubicChunksCore
+      - name: Build and test CubicChunksCore
         shell: bash
         run: |
           set -euo pipefail
           chmod +x CubicChunksCore/gradlew
-          ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
+          ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
 
       - name: Restore Java 25
@@ -65,21 +65,28 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Link core and resolve compile headers
+      - name: Link core and prepare Minecraft headers
         shell: bash
         run: |
           set -euo pipefail
           .github/link-cubic-core.sh 2>&1 | tee fabric-migration-link.log
           ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-migration-classpath.log
+          test -s build/fabric-header-libs/CubicChunksCore-linked.jar
           test -s build/fabric-header-libs/minecraft-client-access-widened.jar
 
-      - name: Compile Minecraft 26.2 sources
+      - name: Compile runtime and tests
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew compileJava --stacktrace --no-daemon 2>&1 | tee fabric-migration-compile.log
+          ./gradlew compileJava compileTestJava --stacktrace --no-daemon 2>&1 | tee fabric-migration-compile.log
 
-      - name: Build Fabric jar
+      - name: Run Fabric port tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew test --stacktrace --no-daemon 2>&1 | tee fabric-migration-test.log
+
+      - name: Build distributable Fabric jar
         shell: bash
         run: |
           set -euo pipefail
@@ -87,22 +94,27 @@ jobs:
           jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
           test -s "$jar_path"
           jar tf "$jar_path" | sort > fabric-migration-jar.txt
-          grep -q 'fabric.mod.json' fabric-migration-jar.txt
-          grep -q 'cubicchunks.accesswidener' fabric-migration-jar.txt
+          grep -q '^fabric.mod.json$' fabric-migration-jar.txt
+          grep -q '^cubicchunks.accesswidener$' fabric-migration-jar.txt
+          grep -q '^io/github/opencubicchunks/cubicchunks/CubicChunks.class$' fabric-migration-jar.txt
 
-      - name: Start stop and restart dedicated server
+      - name: Start stop restart and reload dedicated server
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf run/fabric-26-2-migration-world
+          world='fabric-26-2-migration-world'
+          rm -rf "run/$world"
           mkdir -p run
           printf 'eula=true\n' > run/eula.txt
-          cat > run/server.properties <<'PROPERTIES'
+          cat > run/server.properties <<PROPERTIES
           online-mode=false
+          enable-rcon=true
+          rcon.password=cubicchunks-ci
+          rcon.port=25579
           view-distance=2
           simulation-distance=2
           max-tick-time=-1
-          level-name=fabric-26-2-migration-world
+          level-name=$world
           motd=CubicChunks Fabric 26.2 Migration Gate
           PROPERTIES
 
@@ -111,16 +123,19 @@ jobs:
             : > "$log_file"
             setsid ./gradlew runServer --stacktrace --no-daemon </dev/null >"$log_file" 2>&1 &
             local group=$!
-            for _ in $(seq 1 360); do
+            for _ in $(seq 1 420); do
               if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' "$log_file"; then
-                kill -INT -- "-$group" >/dev/null 2>&1 || true
-                for _ in $(seq 1 120); do
+                python .github/scripts/minecraft_rcon.py 'save-all flush' --host 127.0.0.1 --port 25579 --password cubicchunks-ci
+                python .github/scripts/minecraft_rcon.py stop --host 127.0.0.1 --port 25579 --password cubicchunks-ci --allow-disconnect
+                for _ in $(seq 1 180); do
                   if ! kill -0 "$group" >/dev/null 2>&1; then
                     wait "$group" >/dev/null 2>&1 || true
+                    grep -Eq 'Saved the game|All dimensions are saved|Stopping server' "$log_file"
                     return 0
                   fi
                   sleep 1
                 done
+                cat "$log_file"
                 kill -TERM -- "-$group" >/dev/null 2>&1 || true
                 wait "$group" >/dev/null 2>&1 || true
                 return 1
@@ -139,14 +154,19 @@ jobs:
           }
 
           run_server fabric-migration-server-first.log
-          test -d run/fabric-26-2-migration-world
-          find run/fabric-26-2-migration-world -type f -print | sort > fabric-migration-world-first.txt
+          test -d "run/$world"
+          find "run/$world" -type f -print | sort > fabric-migration-world-first.txt
           test -s fabric-migration-world-first.txt
+          cp fabric-migration-world-first.txt fabric-migration-world-before-restart.txt
           run_server fabric-migration-server-second.log
-          find run/fabric-26-2-migration-world -type f -print | sort > fabric-migration-world-second.txt
+          find "run/$world" -type f -print | sort > fabric-migration-world-second.txt
           test -s fabric-migration-world-second.txt
+          comm -23 fabric-migration-world-before-restart.txt fabric-migration-world-second.txt > fabric-migration-world-missing.txt
+          test ! -s fabric-migration-world-missing.txt
+          ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-first.log
+          ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-second.log
 
-      - name: Commit fully validated migrated sources
+      - name: Commit fully validated migrated runtime
         if: github.event_name == 'push'
         shell: bash
         run: |
@@ -159,13 +179,13 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build.gradle src/main/java .github/widen-minecraft-headers.py
+          git add build.gradle src/main/java src/main/resources .github/widen-minecraft-headers.py
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'Validated tree already contains the Minecraft 26.2 migration.'
             exit 0
           fi
-          git commit -m 'Migrate CubicChunks runtime to Minecraft 26.2 APIs'
+          git commit -m 'Complete Minecraft 26.2 API migration'
           git push origin HEAD:agent/cubicchunks3-fabric-26.2
 
       - name: Upload migration diagnostics
@@ -175,11 +195,12 @@ jobs:
           name: fabric-26.2-migration-diagnostics
           path: |
             fabric-migration-*.log
-            fabric-migration-jar.txt
-            fabric-migration-world-*.txt
+            fabric-migration-*.txt
             build/reports/
+            build/test-results/
             build/libs/
             run/logs/
             run/crash-reports/
+            run/fabric-26-2-migration-world/cubicchunks/**
           if-no-files-found: ignore
           retention-days: 7
