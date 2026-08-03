@@ -2,6 +2,7 @@
 """Wire CubicChunksCore's published test jar into the Fabric parent test runtime."""
 
 from pathlib import Path
+import runpy
 
 path = Path("build.gradle")
 text = path.read_text(encoding="utf-8")
@@ -70,4 +71,5 @@ if "def coreTestsJar = file(" not in text:
     text = text.replace(marker, snippet + marker, 1)
 
 path.write_text(text, encoding="utf-8")
+runpy.run_path(".github/fabric-runtime-fixes.py", run_name="__fabric_runtime_fixes__")
 print("Configured CubicChunksCore tests for the Fabric parent runtime")
