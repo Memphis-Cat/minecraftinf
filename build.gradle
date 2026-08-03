@@ -121,6 +121,11 @@ dependencies {
     implementation files(linkedCoreJar)
     include files(linkedCoreJar)
 
+    implementation 'com.electronwill.night-config:core:3.9.0'
+    implementation 'com.electronwill.night-config:toml:3.9.0'
+    include 'com.electronwill.night-config:core:3.9.0'
+    include 'com.electronwill.night-config:toml:3.9.0'
+
     // Mojang ships 26.2 unobfuscated. This verified client jar contains both
     // common/server and client symbols and is used only to restore javac's game
     // classes while Loom's merged-deobf regression is isolated.
