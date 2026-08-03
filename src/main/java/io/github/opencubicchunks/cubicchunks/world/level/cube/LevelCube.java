@@ -21,6 +21,7 @@ import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import io.github.opencubicchunks.cubicchunks.exception.DasmFailedToApply;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;
+import io.github.opencubicchunks.cubicchunks.world.level.CubicLevelTicks;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -39,6 +40,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseRailBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.TickingBlockEntity;
@@ -56,12 +58,17 @@ import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.ticks.LevelChunkTicks;
+import net.minecraft.world.ticks.LevelTicks;
 import net.minecraft.world.ticks.TickContainerAccess;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
 @Dasm(ChunkToCubeSet.class)
 public class LevelCube extends CubeAccess implements LevelClo {
+    private static final int PACKED_Y_SHIFT = 4;
+    private static final int PACKED_Z_SHIFT = 8;
+    private static final int POST_PROCESSING_UPDATE_FLAGS = 276;
+
     // Fields matching LevelChunk
     static final Logger LOGGER = LogUtils.getLogger();
     private static final TickingBlockEntity NULL_TICKER = new TickingBlockEntity() {
@@ -351,18 +358,39 @@ public class LevelCube extends CubeAccess implements LevelClo {
     @TransformFromMethod(value = "getBlockEntities()Ljava/util/Map;", owner = @Ref(LevelChunk.class))
     public native Map<BlockPos, BlockEntity> getBlockEntities();
 
-    // TODO P2 or P3 figure this out later - stub method for now
     public void postProcessGeneration(ServerLevel serverLevel) {
-        for (int i = 0; i < this.postProcessing.length; ++i) {
-            if (this.postProcessing[i] != null) {
-                this.postProcessing[i].clear();
+        for (int sectionIndex = 0; sectionIndex < this.postProcessing.length; ++sectionIndex) {
+            if (this.postProcessing[sectionIndex] == null) {
+                continue;
             }
+
+            int sectionX = Coords.cubeToSection(this.cubePos.getX(), Coords.indexToX(sectionIndex));
+            int sectionY = Coords.cubeToSection(this.cubePos.getY(), Coords.indexToY(sectionIndex));
+            int sectionZ = Coords.cubeToSection(this.cubePos.getZ(), Coords.indexToZ(sectionIndex));
+            for (short packedPosition : this.postProcessing[sectionIndex]) {
+                int localX = packedPosition & SectionPos.SECTION_MASK;
+                int localY = packedPosition >> PACKED_Y_SHIFT & SectionPos.SECTION_MASK;
+                int localZ = packedPosition >> PACKED_Z_SHIFT & SectionPos.SECTION_MASK;
+                BlockPos blockPos = new BlockPos(SectionPos.sectionToBlockCoord(sectionX, localX), SectionPos.sectionToBlockCoord(sectionY, localY),
+                        SectionPos.sectionToBlockCoord(sectionZ, localZ));
+                BlockState blockState = this.getBlockState(blockPos);
+                FluidState fluidState = blockState.getFluidState();
+                if (!fluidState.isEmpty()) {
+                    fluidState.tick(serverLevel, blockPos, blockState);
+                }
+                if (!(blockState.getBlock() instanceof LiquidBlock)) {
+                    BlockState updatedState = Block.updateFromNeighbourShapes(blockState, serverLevel, blockPos);
+                    if (updatedState != blockState) {
+                        serverLevel.setBlock(blockPos, updatedState, POST_PROCESSING_UPDATE_FLAGS);
+                    }
+                }
+            }
+            this.postProcessing[sectionIndex].clear();
         }
 
-        for (BlockPos blockpos1 : ImmutableList.copyOf(this.pendingBlockEntities.keySet())) {
-            this.getBlockEntity(blockpos1);
+        for (BlockPos blockPos : ImmutableList.copyOf(this.pendingBlockEntities.keySet())) {
+            this.getBlockEntity(blockPos);
         }
-
         this.pendingBlockEntities.clear();
     }
 
@@ -373,16 +401,23 @@ public class LevelCube extends CubeAccess implements LevelClo {
     @TransformFromMethod(value = "unpackTicks(J)V", owner = @Ref(LevelChunk.class))
     public native void unpackTicks(long pos);
 
-    // TODO (P2 or P3) ticks are disabled for now; stub methods as placeholders
-//    @TransformFromMethod(value = @MethodSig("registerTickContainerInLevel(Lnet/minecraft/server/level/ServerLevel;)V"), owner = @Ref(LevelChunk
-//    .class))
-//    public native void registerTickContainerInLevel(ServerLevel level);
-    public void registerTickContainerInLevel(ServerLevel level) {}
+    public void registerTickContainerInLevel(ServerLevel level) {
+        cubicTicks(level.getBlockTicks(), "block").addContainer(this.cubePos, this.blockTicks);
+        cubicTicks(level.getFluidTicks(), "fluid").addContainer(this.cubePos, this.fluidTicks);
+    }
 
-    // @TransformFromMethod(value = @MethodSig("unregisterTickContainerFromLevel(Lnet/minecraft/server/level/ServerLevel;)V"), owner = @Ref
-    // (LevelChunk.class))
-//    public native void unregisterTickContainerFromLevel(ServerLevel level);
-    public void unregisterTickContainerFromLevel(ServerLevel level) {}
+    public void unregisterTickContainerFromLevel(ServerLevel level) {
+        cubicTicks(level.getBlockTicks(), "block").removeContainer(this.cubePos);
+        cubicTicks(level.getFluidTicks(), "fluid").removeContainer(this.cubePos);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> CubicLevelTicks<T> cubicTicks(LevelTicks<T> ticks, String type) {
+        if (!(ticks instanceof CubicLevelTicks<?> cubicTicks)) {
+            throw new IllegalStateException("Cubic level uses non-cubic " + type + " tick storage: " + ticks.getClass().getName());
+        }
+        return (CubicLevelTicks<T>) cubicTicks;
+    }
 
     @TransformFromMethod(value = "getPersistedStatus()Lnet/minecraft/world/level/chunk/status/ChunkStatus;", owner = @Ref(LevelChunk.class))
     @Override public native ChunkStatus getPersistedStatus();

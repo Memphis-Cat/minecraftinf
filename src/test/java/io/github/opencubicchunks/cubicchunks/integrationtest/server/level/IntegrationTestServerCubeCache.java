@@ -14,7 +14,6 @@ import static org.mockito.Mockito.withSettings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.api.CubicConstants;
@@ -25,6 +24,7 @@ import io.github.opencubicchunks.cubicchunks.server.level.CubeLevel;
 import io.github.opencubicchunks.cubicchunks.server.level.ServerCubeCache;
 import io.github.opencubicchunks.cubicchunks.testutils.BaseTest;
 import io.github.opencubicchunks.cubicchunks.testutils.CloseableReference;
+import io.github.opencubicchunks.cubicchunks.world.level.CubicLevelTicks;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.ProtoCube;
 import net.minecraft.server.level.ChunkMap;
@@ -42,8 +42,6 @@ import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Answers;
 import org.mockito.Mockito;
 
@@ -55,23 +53,16 @@ import org.mockito.Mockito;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class IntegrationTestServerCubeCache extends BaseTest {
-    private Stream<ChunkStatus> chunkStatuses() {
-        return ChunkStatus.getStatusList().stream();
-    }
-
     private CloseableReference<ServerChunkCache> createServerChunkCache(boolean vanillaTest)
             throws IOException, NoSuchFieldException, IllegalAccessException {
         // Worldgen internals
         var randomStateMockedStatic = Mockito.mockStatic(RandomState.class, withSettings().defaultAnswer(Answers.RETURNS_DEEP_STUBS));
         NoiseBasedChunkGenerator noiseBasedChunkGeneratorMock = mock();
         when(noiseBasedChunkGeneratorMock.generatorSettings()).thenReturn(mock());
-        if (vanillaTest) {
-            // These methods are currently only called when running vanilla tests
-            when(noiseBasedChunkGeneratorMock.createBiomes(any(), any(), any(), any()))
-                    .thenAnswer(i -> CompletableFuture.completedFuture(i.getArguments()[3]));
-            when(noiseBasedChunkGeneratorMock.fillFromNoise(any(), any(), any(), any()))
-                    .thenAnswer(i -> CompletableFuture.completedFuture(i.getArguments()[3]));
-        }
+        when(noiseBasedChunkGeneratorMock.createBiomes(any(), any(), any(), any()))
+                .thenAnswer(i -> CompletableFuture.completedFuture(i.getArguments()[3]));
+        when(noiseBasedChunkGeneratorMock.fillFromNoise(any(), any(), any(), any()))
+                .thenAnswer(i -> CompletableFuture.completedFuture(i.getArguments()[3]));
 
         ServerLevel serverLevelMock;
         try (var ignored = Mockito.mockConstruction(ServerChunkCache.class, withSettings().defaultAnswer(Answers.RETURNS_DEEP_STUBS))) {
@@ -84,8 +75,13 @@ public class IntegrationTestServerCubeCache extends BaseTest {
             f.set(serverLevelMock, true);
             when(((CanBeCubic) serverLevelMock).cc_isCubic()).thenReturn(true);
         }
+        when(serverLevelMock.getMinY()).thenReturn(-64);
         when(serverLevelMock.getHeight()).thenReturn(384);
         when(serverLevelMock.getSectionsCount()).thenReturn(24);
+        if (!vanillaTest) {
+            when(serverLevelMock.getBlockTicks()).thenReturn(new CubicLevelTicks<>(ignored -> true));
+            when(serverLevelMock.getFluidTicks()).thenReturn(new CubicLevelTicks<>(ignored -> true));
+        }
         // We seem to need an actual directory, not a mock
         LevelStorageSource.LevelStorageAccess levelStorageAccessMock = mock(Mockito.RETURNS_DEEP_STUBS);
         when(levelStorageAccessMock.getDimensionPath(any())).thenReturn(Files.createTempDirectory("cc_test"));
@@ -123,10 +119,21 @@ public class IntegrationTestServerCubeCache extends BaseTest {
         }
     }
 
-    @ParameterizedTest
-    @MethodSource("chunkStatuses")
-    public void getChunkVanilla(ChunkStatus status) throws Exception {
-        singleGetChunkVanilla(status);
+    @Test
+    public void getChunkVanilla() throws Exception {
+        try (var serverChunkCacheRef = createServerChunkCache(true)) {
+            var serverChunkCache = serverChunkCacheRef.value();
+            for (ChunkStatus status : ChunkStatus.getStatusList()) {
+                var chunkAccess = serverChunkCache.getChunk(0, 0, status, true);
+                assertNotNull(chunkAccess);
+                assertTrue(chunkAccess.getPersistedStatus().isOrAfter(status));
+                if (status.isOrAfter(ChunkStatus.FULL)) {
+                    assertInstanceOf(LevelChunk.class, chunkAccess);
+                } else {
+                    assertInstanceOf(ProtoChunk.class, chunkAccess);
+                }
+            }
+        }
     }
 
     @Test
@@ -192,10 +199,21 @@ public class IntegrationTestServerCubeCache extends BaseTest {
         }
     }
 
-    @ParameterizedTest
-    @MethodSource("chunkStatuses")
-    public void getChunk(ChunkStatus status) throws Exception {
-        singleGetChunk(status);
+    @Test
+    public void getChunk() throws Exception {
+        try (var serverChunkCacheRef = createServerChunkCache(false)) {
+            var serverChunkCache = serverChunkCacheRef.value();
+            for (ChunkStatus status : ChunkStatus.getStatusList()) {
+                var chunkAccess = serverChunkCache.getChunk(0, 0, status, true);
+                assertNotNull(chunkAccess);
+                assertTrue(chunkAccess.getPersistedStatus().isOrAfter(status));
+                if (status.isOrAfter(ChunkStatus.FULL)) {
+                    assertInstanceOf(LevelChunk.class, chunkAccess);
+                } else {
+                    assertInstanceOf(ProtoChunk.class, chunkAccess);
+                }
+            }
+        }
     }
 
     /**
@@ -260,10 +278,21 @@ public class IntegrationTestServerCubeCache extends BaseTest {
         }
     }
 
-    @ParameterizedTest
-    @MethodSource("chunkStatuses")
-    public void getCube(ChunkStatus status) throws Exception {
-        singleGetCube(status);
+    @Test
+    public void getCube() throws Exception {
+        try (var serverChunkCacheRef = createServerChunkCache(false)) {
+            var serverCubeCache = (ServerCubeCache) serverChunkCacheRef.value();
+            for (ChunkStatus status : ChunkStatus.getStatusList()) {
+                var cubeAccess = serverCubeCache.cc_getCube(0, 0, 0, status, true);
+                assertNotNull(cubeAccess);
+                assertTrue(cubeAccess.getPersistedStatus().isOrAfter(status));
+                if (status.isOrAfter(ChunkStatus.FULL)) {
+                    assertInstanceOf(LevelCube.class, cubeAccess);
+                } else {
+                    assertInstanceOf(ProtoCube.class, cubeAccess);
+                }
+            }
+        }
     }
 
     /**

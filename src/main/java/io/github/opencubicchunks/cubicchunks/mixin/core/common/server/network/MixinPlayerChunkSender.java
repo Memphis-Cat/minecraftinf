@@ -13,14 +13,15 @@ import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
 import io.github.opencubicchunks.cubicchunks.network.CCClientboundForgetLevelCloPacket;
-import io.github.opencubicchunks.cubicchunks.network.CCClientboundLevelChunkPacket;
 import io.github.opencubicchunks.cubicchunks.network.CCClientboundLevelCubeWithLightPacket;
+import io.github.opencubicchunks.cubicchunks.server.network.CloSendOrder;
 import io.github.opencubicchunks.cubicchunks.world.entity.EntityCubePosGetter;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.network.protocol.game.ClientboundChunkBatchFinishedPacket;
 import net.minecraft.network.protocol.game.ClientboundChunkBatchStartPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -126,7 +127,7 @@ public class MixinPlayerChunkSender {
 
     @Unique
     private static void cc_sendChunk(ServerGamePacketListenerImpl packetListener, ServerLevel level, LevelChunk chunk) {
-        PacketDistributor.sendToPlayer(packetListener.player, new CCClientboundLevelChunkPacket(chunk.getPos()));
+        packetListener.send(new ClientboundLevelChunkWithLightPacket(chunk, level.getLightEngine(), null, null));
 
         // ChunkPos chunkpos = chunk.getPos();
 
@@ -140,14 +141,13 @@ public class MixinPlayerChunkSender {
     @TransformFromMethod(value = "collectChunksToSend(Lnet/minecraft/server/level/ChunkMap;Lnet/minecraft/world/level/ChunkPos;)Ljava/util/List;")
     private native List<LevelClo> cc_collectChunksToSend(ChunkMap chunkMap, CloPos cloPos);
 
-    // FIXME these should probably have some kind of reasonable sort order - at the very least, chunks before cubes
     @Dynamic @Redirect(method = "cc_collectChunksToSend", at = @At(ordinal = 0, value = "INVOKE", target = "Ljava/util/Comparator;comparingInt(Ljava/util/function/ToIntFunction;)Ljava/util/Comparator;"))
     private Comparator<Long> cc_onCollectChunksToSend_comparator1(ToIntFunction<Long> keyExtractor) {
-        return (a, b) -> 0;
+        return CloSendOrder.encodedPositions(keyExtractor);
     }
 
     @Dynamic @Redirect(method = "cc_collectChunksToSend", at = @At(ordinal = 1, value = "INVOKE", target = "Ljava/util/Comparator;comparingInt(Ljava/util/function/ToIntFunction;)Ljava/util/Comparator;"))
     private Comparator<LevelClo> cc_onCollectChunksToSend_comparator2(ToIntFunction<LevelClo> keyExtractor) {
-        return (a, b) -> 0;
+        return CloSendOrder.loadedClos(keyExtractor);
     }
 }

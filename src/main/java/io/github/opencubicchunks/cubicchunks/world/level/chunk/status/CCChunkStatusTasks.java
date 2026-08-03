@@ -2,7 +2,9 @@ package io.github.opencubicchunks.cubicchunks.world.level.chunk.status;
 
 import java.util.concurrent.CompletableFuture;
 
+import com.mojang.logging.LogUtils;
 import io.github.notstirred.dasm.api.annotations.Dasm;
+import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddFieldToSets;
 import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddTransformToSets;
 import io.github.notstirred.dasm.api.annotations.selector.Ref;
 import io.github.notstirred.dasm.api.annotations.transform.TransformFromMethod;
@@ -16,6 +18,7 @@ import net.minecraft.world.level.chunk.status.ChunkStatusTasks;
 import net.minecraft.world.level.chunk.status.ChunkStep;
 import net.minecraft.world.level.chunk.status.WorldGenContext;
 import net.minecraft.world.level.storage.ValueInput;
+import org.slf4j.Logger;
 
 /**
  * Equivalent of {@link ChunkStatusTasks} for chunks in cubic worlds.
@@ -30,6 +33,9 @@ import net.minecraft.world.level.storage.ValueInput;
  */
 @Dasm(ChunkInCubicContextSet.class)
 public final class CCChunkStatusTasks {
+    @AddFieldToSets(containers = ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class, field = "LOGGER:Lorg/slf4j/Logger;")
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private CCChunkStatusTasks() {}
 
     @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)

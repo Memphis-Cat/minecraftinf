@@ -41,6 +41,7 @@ import io.github.opencubicchunks.cubicchunks.network.CCClientboundSetCubeCacheCe
 import io.github.opencubicchunks.cubicchunks.server.level.CCServerPlayer;
 import io.github.opencubicchunks.cubicchunks.server.level.CloGenerationTask;
 import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
+import io.github.opencubicchunks.cubicchunks.server.level.CloStatusUpdates;
 import io.github.opencubicchunks.cubicchunks.server.level.CloTrackingView;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeMapMath;
@@ -106,6 +107,8 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
 
     @Shadow protected abstract ChunkHolder getUpdatingChunkIfPresent(long aLong);
 
+    @Shadow protected abstract @Nullable ChunkHolder getVisibleChunkIfPresent(long position);
+
     @Shadow @Final ServerLevel level;
     @Shadow @Final private ChunkMap.DistanceManager distanceManager;
 
@@ -133,9 +136,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     ) {
         if (((CanBeCubic) level).cc_isCubic()) {
             cc_progressListener = ((CloProgressListener) progressListener);
-            // TODO P2 (entities): actually pass in a cloStatusListener - since ChunkStatusUpdateListener is passed as a parameter, not sure what the
-            // best approach is without making our own constructor
-            cc_cloStatusListener = (cloPos, fullChunkStatus) -> {};
+            cc_cloStatusListener = CloStatusUpdates.adapt(chunkStatusListener);
             ((MarkableAsCubic) distanceManager).cc_setCubic();
             cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"));
         }
@@ -143,7 +144,11 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
 
     @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
     @TransformFromMethod("setChunkUnsaved(Lnet/minecraft/world/level/ChunkPos;)V")
-    private native void cc_setCloUnsaved(CloPos cloPos);
+    @Override public native void cc_setCloUnsaved(CloPos cloPos);
+
+    @Override public @Nullable ChunkHolder cc_getVisibleChunkIfPresent(long position) {
+        return this.getVisibleChunkIfPresent(position);
+    }
 
     /**
      * Returns the squared distance to the center of the cube.

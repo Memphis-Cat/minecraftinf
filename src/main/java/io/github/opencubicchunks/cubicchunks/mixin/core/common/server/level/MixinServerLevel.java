@@ -2,6 +2,7 @@ package io.github.opencubicchunks.cubicchunks.mixin.core.common.server.level;
 
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.function.LongPredicate;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -16,6 +17,7 @@ import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;
 import io.github.opencubicchunks.cubicchunks.server.level.CubicServerLevel;
 import io.github.opencubicchunks.cubicchunks.server.level.ServerCubeCache;
+import io.github.opencubicchunks.cubicchunks.world.level.CubicLevelTicks;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import net.minecraft.core.BlockPos;
@@ -30,11 +32,13 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.ServerLevelData;
+import net.minecraft.world.ticks.LevelTicks;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Dasm(value = ChunkToCloSet.class, target = @Ref(ServerLevel.class))
@@ -49,6 +53,14 @@ public abstract class MixinServerLevel extends MixinLevel implements CubicServer
             List customSpawners, boolean tickTime, RandomSequences randomSequences, CallbackInfo ci
     ) {
         // TODO conditionally mark as cubic based on dimension, config, level data, etc
+    }
+
+    @Redirect(method = "<init>", at = @At(value = "NEW", target = "net/minecraft/world/ticks/LevelTicks"))
+    private <T> LevelTicks<T> cc_createLevelTicks(LongPredicate vanillaTickCheck) {
+        if (!this.cc_isCubic) {
+            return new LevelTicks<>(vanillaTickCheck);
+        }
+        return new CubicLevelTicks<>(packedCube -> this.chunkSource.isPositionTicking(packedCube));
     }
 
     @Override public ServerCubeCache cc_getCubeSource() {

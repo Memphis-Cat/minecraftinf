@@ -1,24 +1,27 @@
 package io.github.opencubicchunks.cubicchunks.world.level.cube.status;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cc_core.utils.Coords;
+import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.server.level.ChunkResult;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.WorldGenContext;
+import net.minecraft.world.ticks.SavedTick;
+import net.minecraft.world.ticks.SerializableTickContainer;
+import net.minecraft.world.ticks.TickContainerAccess;
 
 /**
  * Projects vanilla-generated chunk columns into one sparse cube.
@@ -33,41 +36,37 @@ public final class CubeColumnBridge {
 
     public static CompletableFuture<CubeAccess> synchronize(WorldGenContext context, ChunkStatus requiredStatus, CubeAccess cube) {
         CubePos cubePos = cube.cc_getCubePos();
-        List<CompletableFuture<ChunkResult<ChunkAccess>>> futures = new ArrayList<>(CubicConstants.CHUNK_COUNT);
+        ChunkAccess[] columns = new ChunkAccess[CubicConstants.CHUNK_COUNT];
         for (int localX = 0; localX < CubicConstants.DIAMETER_IN_SECTIONS; ++localX) {
             for (int localZ = 0; localZ < CubicConstants.DIAMETER_IN_SECTIONS; ++localZ) {
                 int chunkX = Coords.cubeToSection(cubePos.getX(), localX);
                 int chunkZ = Coords.cubeToSection(cubePos.getZ(), localZ);
-                futures.add(context.level().getChunkSource().getChunkFuture(chunkX, chunkZ, requiredStatus, true));
+                ChunkHolder holder = ((CubicChunkMap) context.level().getChunkSource().chunkMap)
+                        .cc_getVisibleChunkIfPresent(ChunkPos.asLong(chunkX, chunkZ));
+                ChunkAccess column = holder == null ? null : holder.getChunkIfPresentUnchecked(requiredStatus);
+                if (column == null) {
+                    throw new IllegalStateException("Scheduled vanilla column " + new ChunkPos(chunkX, chunkZ) + " was unavailable at "
+                            + requiredStatus + " while projecting cube " + cubePos);
+                }
+                columns[columnIndex(localX, localZ)] = column;
             }
         }
 
-        CompletableFuture<?>[] pending = futures.toArray(CompletableFuture[]::new);
-        return CompletableFuture.allOf(pending).thenApply(unused -> {
-            ChunkAccess[] columns = new ChunkAccess[CubicConstants.CHUNK_COUNT];
-            for (int index = 0; index < futures.size(); ++index) {
-                ChunkAccess column = futures.get(index).join().orElse(null);
-                if (column == null) {
-                    throw new IllegalStateException("Vanilla column required for cube " + cubePos + " was unavailable at " + requiredStatus);
-                }
-                columns[index] = column;
+        copySections(context, cube, columns);
+        if (requiredStatus.isOrAfter(ChunkStatus.FEATURES)) {
+            copyPostProcessing(cube, columns);
+            copyBlockEntities(context, cube, columns);
+            copyScheduledTicks(context, cube, columns);
+        }
+        if (requiredStatus.isOrAfter(ChunkStatus.LIGHT)) {
+            boolean lightCorrect = true;
+            for (ChunkAccess column : columns) {
+                lightCorrect &= column.isLightCorrect();
             }
-
-            copySections(context, cube, columns);
-            if (requiredStatus.isOrAfter(ChunkStatus.FEATURES)) {
-                copyPostProcessing(cube, columns);
-                copyBlockEntities(context, cube, columns);
-            }
-            if (requiredStatus.isOrAfter(ChunkStatus.LIGHT)) {
-                boolean lightCorrect = true;
-                for (ChunkAccess column : columns) {
-                    lightCorrect &= column.isLightCorrect();
-                }
-                cube.setLightCorrect(lightCorrect);
-            }
-            cube.markUnsaved();
-            return cube;
-        });
+            cube.setLightCorrect(lightCorrect);
+        }
+        cube.markUnsaved();
+        return CompletableFuture.completedFuture(cube);
     }
 
     static int sourceSectionY(CubePos cubePos, int localSectionY) {
@@ -118,6 +117,36 @@ public final class CubeColumnBridge {
                 }
             }
         }
+    }
+
+    private static void copyScheduledTicks(WorldGenContext context, CubeAccess cube, ChunkAccess[] columns) {
+        long gameTime = context.level().getGameTime();
+        long blockSubTickOrder = 0L;
+        long fluidSubTickOrder = 0L;
+        for (ChunkAccess column : columns) {
+            blockSubTickOrder = copyScheduledTicks(gameTime, cube.cc_getCubePos(), cube.getBlockTicks(), column.getBlockTicks(), blockSubTickOrder);
+            fluidSubTickOrder = copyScheduledTicks(gameTime, cube.cc_getCubePos(), cube.getFluidTicks(), column.getFluidTicks(), fluidSubTickOrder);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> long copyScheduledTicks(
+            long gameTime, CubePos cubePos, TickContainerAccess<T> target, TickContainerAccess<T> source, long subTickOrder
+    ) {
+        if (!(source instanceof SerializableTickContainer<?> rawSerializable)) {
+            return subTickOrder;
+        }
+        long nextSubTickOrder = subTickOrder;
+        SerializableTickContainer<T> serializable = (SerializableTickContainer<T>) rawSerializable;
+        for (SavedTick<T> tick : serializable.pack(gameTime)) {
+            BlockPos position = tick.pos();
+            if (position.getX() < cubePos.minCubeX() || position.getX() > cubePos.maxCubeX() || position.getY() < cubePos.minCubeY()
+                    || position.getY() > cubePos.maxCubeY() || position.getZ() < cubePos.minCubeZ() || position.getZ() > cubePos.maxCubeZ()) {
+                continue;
+            }
+            target.schedule(tick.unpack(gameTime, nextSubTickOrder++));
+        }
+        return nextSubTickOrder;
     }
 
     private static void copyBlockEntities(WorldGenContext context, CubeAccess cube, ChunkAccess[] columns) {
