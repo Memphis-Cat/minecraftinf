@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - agent/cubicchunks3-fabric-26.2
+  pull_request:
+    branches:
+      - dev
   workflow_dispatch:
 
 concurrency:
-  group: cubicchunks3-fabric-dev-bundle-${{ github.ref }}
+  group: cubicchunks3-fabric-dev-bundle-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -41,8 +44,10 @@ jobs:
 
       - name: Build CubicChunksCore
         run: |
+          set -euo pipefail
           chmod +x CubicChunksCore/gradlew
           ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble --no-daemon
+          test -s CubicChunksCore/build/libs/CubicChunksCore.jar
 
       - name: Restore Java 25
         uses: actions/setup-java@v4
@@ -50,12 +55,22 @@ jobs:
           distribution: temurin
           java-version: '25'
 
+      - name: Link CubicChunksCore outside the Loom build
+        run: |
+          set -euo pipefail
+          chmod +x .github/link-cubic-core.sh
+          .github/link-cubic-core.sh 2>&1 | tee fabric-core-link.log
+          test -s build/fabric-header-libs/CubicChunksCore-linked.jar
+
       - name: Resolve sources and compile classpath
         run: |
           set -euo pipefail
           chmod +x gradlew
           rm -rf .gradle/loom-cache
           ./gradlew --refresh-dependencies genSources printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-dev-bundle.log
+          minecraft_jar="$(find .gradle/loom-cache/minecraftMaven -type f -name 'minecraft-merged-*.jar' -print -quit)"
+          test -n "$minecraft_jar"
+          test "$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')" -gt 10000
           find .gradle/loom-cache -type f \( -name '*.jar' -o -name '*.tiny' \) -print | sort > fabric-dev-bundle-files.txt
           tar -czf fabric-minecraft-dev-bundle.tar.gz \
             .gradle/loom-cache \
@@ -64,11 +79,14 @@ jobs:
             fabric-dev-bundle-files.txt
 
       - name: Upload developer bundle
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fabric-26.2-developer-bundle
           path: |
             fabric-minecraft-dev-bundle.tar.gz
             fabric-dev-bundle.log
+            fabric-core-link.log
             fabric-dev-bundle-files.txt
+          if-no-files-found: ignore
           retention-days: 2
