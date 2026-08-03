@@ -35,14 +35,22 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Apply validated runtime fixes
+      - name: Apply pending validated runtime fixes
+        shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           echo "BRANCH_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          python .github/cc3-protocube-unload.patch
-          python .github/cc3-shutdown-drain.py
-          ./gradlew spotlessApply --stacktrace --no-daemon
+          echo "CC3_BOOTSTRAP=false" >> "$GITHUB_ENV"
+
+          if [[ -f .github/cc3-protocube-unload.patch || -f .github/cc3-shutdown-drain.py ]]; then
+            [[ -f .github/cc3-protocube-unload.patch ]]
+            [[ -f .github/cc3-shutdown-drain.py ]]
+            python .github/cc3-protocube-unload.patch
+            python .github/cc3-shutdown-drain.py
+            ./gradlew spotlessApply --stacktrace --no-daemon
+            echo "CC3_BOOTSTRAP=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Run CubicChunksCore tests
         run: ./gradlew :CubicChunksCore:test --stacktrace --no-daemon
@@ -72,72 +80,40 @@ jobs:
       - name: Run save, stop, restart, and reload gate
         run: bash .github/scripts/server-persistence-smoke.sh
 
-      - name: Commit validated runtime source
+      - name: Commit validated runtime sources
+        if: env.CC3_BOOTSTRAP == 'true'
+        shell: bash
         run: |
           set -euo pipefail
           git fetch origin agent/cubicchunks3-phase1
-          if [ "$(git rev-parse origin/agent/cubicchunks3-phase1)" != "$BRANCH_START" ]; then
+          if [[ "$(git rev-parse origin/agent/cubicchunks3-phase1)" != "$BRANCH_START" ]]; then
             echo "Feature branch moved during validation; refusing to overwrite it."
             exit 1
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f .github/cc3-protocube-unload.patch .github/cc3-shutdown-drain.py .github/cc3-stop-diagnostic.py
-          cat > .github/workflows/phase1-ci.yml <<'WORKFLOW'
-          name: CubicChunks3 Phase 1 CI
 
-          on:
-            pull_request:
-              branches:
-                - dev
-            workflow_dispatch:
+          rm -f \
+            .github/cc3-protocube-unload.patch \
+            .github/cc3-shutdown-drain.py \
+            .github/cc3-stop-diagnostic.py
 
-          concurrency:
-            group: cubicchunks3-phase1-${{ github.event.pull_request.number || github.ref }}
-            cancel-in-progress: true
+          git add \
+            src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java \
+            src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java \
+            src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/cube/TestCubeStorage.java
+          git add -u -- \
+            .github/cc3-protocube-unload.patch \
+            .github/cc3-shutdown-drain.py \
+            .github/cc3-stop-diagnostic.py
 
-          permissions:
-            contents: read
+          git diff --cached --check
+          git diff --cached --quiet && {
+            echo "Bootstrap was requested, but no validated source changes were staged."
+            exit 1
+          }
 
-          jobs:
-            validate:
-              runs-on: ubuntu-latest
-              timeout-minutes: 100
-              steps:
-                - uses: actions/checkout@v4
-                  with:
-                    submodules: recursive
-                    fetch-depth: 0
-                - uses: actions/setup-java@v4
-                  with:
-                    distribution: temurin
-                    java-version: '21'
-                    cache: gradle
-                - uses: gradle/actions/wrapper-validation@v4
-                - run: chmod +x gradlew
-                - run: ./gradlew :CubicChunksCore:test --stacktrace --no-daemon
-                - run: ./gradlew test --tests 'io.github.opencubicchunks.cubicchunks.test.*' --tests 'io.github.opencubicchunks.cubicchunks.world.level.cube.status.TestCubeColumnBridge' --stacktrace --no-daemon
-                - run: ./gradlew test --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache' --stacktrace --no-daemon
-                - run: ./gradlew test --tests 'io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap' --stacktrace --no-daemon
-                - run: ./gradlew check -x test --stacktrace --no-daemon
-                - run: bash .github/scripts/server-persistence-smoke.sh
-                - if: always()
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: phase1-validation-artifacts
-                    path: |
-                      build/reports/
-                      build/test-results/
-                      CubicChunksCore/build/reports/
-                      CubicChunksCore/build/test-results/
-                      server-persistence-first.log
-                      server-persistence-second.log
-                      run/logs/
-                      run/crash-reports/
-                    if-no-files-found: ignore
-                    retention-days: 7
-          WORKFLOW
-          git add -A
           git commit -m "Make cubic unload persistence shutdown-safe"
           git push origin HEAD:agent/cubicchunks3-phase1
 
