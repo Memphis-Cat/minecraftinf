@@ -58,7 +58,20 @@
  
      public CubePos cc_getCubePos() {
          return cubePos;
-@@ -349,19 +384,44 @@ public abstract class CubeAccess implements CloAccess {
+@@ -259,8 +294,10 @@ public abstract class CubeAccess implements CloAccess {
+     @TransformFromMethod(value = "addPackedPostProcess(Lit/unimi/dsi/fastutil/shorts/ShortList;I)V", owner = @Ref(ChunkAccess.class))
+     @Override public native void addPackedPostProcess(ShortList offsets, int index);
+ 
+-    @TransformFromMethod(value = "setBlockEntityNbt(Lnet/minecraft/nbt/CompoundTag;)V", owner = @Ref(ChunkAccess.class))
+-    @Override public native void setBlockEntityNbt(CompoundTag tag);
++    @Override public void setBlockEntityNbt(CompoundTag tag) {
++        BlockPos blockPos = new BlockPos(tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0));
++        this.pendingBlockEntities.put(blockPos, tag);
++    }
+ 
+     @TransformFromMethod(value = "getBlockEntityNbt(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/nbt/CompoundTag;", owner = @Ref(ChunkAccess.class))
+     @Override public native @Nullable CompoundTag getBlockEntityNbt(BlockPos pos);
+@@ -349,19 +386,44 @@ public abstract class CubeAccess implements CloAccess {
      @Override public native int getHeight();
  
      @Override public NoiseChunk getOrCreateNoiseChunk(Function<CloAccess, NoiseChunk> noiseChunkCreator) {
