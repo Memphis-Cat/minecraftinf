@@ -1,0 +1,25 @@
+diff --git a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
+index bbf78b36b..000000000 100644
+--- a/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
++++ b/src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java
+@@ -349,11 +349,15 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
+             }
+ 
+             CloPos cloPos = cloAccess.cc_getCloPos();
+-            if (cloAccess instanceof LevelCube levelCube) {
+-                levelCube.setLoaded(false);
+-                this.cc_save(levelCube);
+-                ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
+-            } else {
++            if (cloPos.isCube()) {
++                if (cloAccess instanceof LevelCube levelCube) {
++                    levelCube.setLoaded(false);
++                }
++                this.cc_save(cloAccess);
++                if (cloAccess instanceof LevelCube levelCube) {
++                    ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
++                }
++            } else {
+                 ChunkAccess chunkAccess = (ChunkAccess) cloAccess;
+                 net.neoforged.neoforge.common.CommonHooks.onChunkUnload(this.poiManager, chunkAccess);
+                 this.chunkTypeCache.remove(chunkAccess.getPos().toLong());
