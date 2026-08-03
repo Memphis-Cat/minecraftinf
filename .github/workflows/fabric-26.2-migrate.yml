@@ -44,20 +44,22 @@ jobs:
           python .github/fabric-gradle9-migrate.py
           python .github/fabric-api26-source-migrate.py
           python .github/fabric-api26-finalize.py
+          python .github/fabric-core-tests.py
           python .github/fabric-api26-finalize.py
+          python .github/fabric-core-tests.py
           chmod +x gradlew .github/link-cubic-core.sh
 
-      - name: Build and test CubicChunksCore
+      - name: Build CubicChunksCore and its test archive
         shell: bash
         run: |
           set -euo pipefail
           chmod +x CubicChunksCore/gradlew
-          export JAVA_HOME_25="$JAVA_HOME"
           curl -fsSL -o /tmp/temurin17.tar.gz 'https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse'
           mkdir -p /tmp/temurin17
           tar -xzf /tmp/temurin17.tar.gz -C /tmp/temurin17 --strip-components=1
-          JAVA_HOME=/tmp/temurin17 PATH=/tmp/temurin17/bin:$PATH ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
+          JAVA_HOME=/tmp/temurin17 PATH=/tmp/temurin17/bin:$PATH ./CubicChunksCore/gradlew -p CubicChunksCore clean assemble testsJar --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
+          test -s CubicChunksCore/build/libs/CubicChunksCore-tests.jar
 
       - name: Link core and prepare Minecraft headers
         shell: bash
@@ -74,17 +76,38 @@ jobs:
           set -euo pipefail
           ./gradlew compileJava compileTestJava --stacktrace --no-daemon 2>&1 | tee fabric-migration-compile.log
 
-      - name: Run Fabric port tests
+      - name: Run Fabric and CubicChunksCore tests
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew test --stacktrace --no-daemon 2>&1 | tee fabric-migration-test.log
+          ./gradlew test coreTest --stacktrace --no-daemon 2>&1 | tee fabric-migration-test.log
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          for task in ('test', 'coreTest'):
+              files = sorted((Path('build/test-results') / task).glob('TEST-*.xml'))
+              if not files:
+                  raise SystemExit(f'{task} produced no JUnit XML results')
+              tests = failures = errors = skipped = 0
+              for file in files:
+                  root = ET.parse(file).getroot()
+                  tests += int(root.attrib.get('tests', 0))
+                  failures += int(root.attrib.get('failures', 0))
+                  errors += int(root.attrib.get('errors', 0))
+                  skipped += int(root.attrib.get('skipped', 0))
+              print(f'{task}: tests={tests} failures={failures} errors={errors} skipped={skipped}')
+              if tests <= 0:
+                  raise SystemExit(f'{task} executed zero tests')
+              if failures or errors:
+                  raise SystemExit(f'{task} contains failures or errors')
+          PY
 
       - name: Build distributable Fabric jar
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-migration-build.log
+          ./gradlew assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-build.log
           jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
           test -s "$jar_path"
           jar tf "$jar_path" | sort > fabric-migration-jar.txt
@@ -228,9 +251,9 @@ jobs:
             for (const file of files) {
               if (!fs.existsSync(file)) continue;
               const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-              const tail = lines.slice(-180).join('\n');
+              const tail = lines.slice(-220).join('\n');
               if (!tail.trim()) continue;
-              body += `<details><summary>${file} (last ${Math.min(lines.length, 180)} lines)</summary>\n\n\`\`\`text\n${tail}\n\`\`\`\n</details>\n\n`;
+              body += `<details><summary>${file} (last ${Math.min(lines.length, 220)} lines)</summary>\n\n\`\`\`text\n${tail}\n\`\`\`\n</details>\n\n`;
             }
             if (body.length > 60000) body = body.slice(0, 60000) + '\n\n[truncated]';
             const comments = await github.paginate(github.rest.issues.listComments, {
