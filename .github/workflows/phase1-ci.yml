@@ -36,6 +36,9 @@ jobs:
       - name: Fix runtime access contracts and test invariants
         run: python .github/scripts/fix-runtime-access.py
 
+      - name: Implement cubic scheduled tick storage
+        run: python .github/scripts/fix-cubic-ticks.py
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -115,7 +118,11 @@ jobs:
 
       - name: Commit validated runtime implementation
         run: |
-          rm -f .github/runtime-completion.patch                 .github/scripts/apply-runtime-completion.py                 .github/scripts/fix-runtime-tests.py                 .github/scripts/fix-runtime-access.py
+          rm -f .github/runtime-completion.patch \
+                .github/scripts/apply-runtime-completion.py \
+                .github/scripts/fix-runtime-tests.py \
+                .github/scripts/fix-runtime-access.py \
+                .github/scripts/fix-cubic-ticks.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
