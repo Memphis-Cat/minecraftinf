@@ -11,6 +11,58 @@ for relative in (
     elif "JavaPluginExtension" not in text:
         raise SystemExit(f"Expected Gradle Java plugin API use was not found in {relative}")
 
+# Gradle 9 no longer delegates these Java Action closures to their action
+# parameter when the closure omits an explicit parameter. Bind every generated
+# config to its concrete config object instead of accidentally configuring the
+# outer extension.
+root_build = Path("build.gradle")
+root_text = root_build.read_text(encoding="utf-8")
+root_text = root_text.replace(
+    """    config(sourceSets.main, 'cubicchunks') {
+        packageName = 'io.github.opencubicchunks.cubicchunks'
+    }
+""",
+    """    config(sourceSets.main, 'cubicchunks') { config ->
+        config.packageName = 'io.github.opencubicchunks.cubicchunks'
+    }
+""",
+)
+root_text = root_text.replace(
+    """    config(sourceSets.main, 'core') {
+        required = true
+        conformVisibility = true
+        injectorsDefaultRequire = 1
+        configurationPlugin = 'io.github.opencubicchunks.cubicchunks.mixin.ASMConfigPlugin'
+    }
+""",
+    """    config(sourceSets.main, 'core') { config ->
+        config.required = true
+        config.conformVisibility = true
+        config.injectorsDefaultRequire = 1
+        config.configurationPlugin = 'io.github.opencubicchunks.cubicchunks.mixin.ASMConfigPlugin'
+    }
+""",
+)
+root_text = root_text.replace(
+    """    config(sourceSets.main, 'access') {
+        required = true
+        conformVisibility = true
+        injectorsDefaultRequire = 1
+    }
+""",
+    """    config(sourceSets.main, 'access') { config ->
+        config.required = true
+        config.conformVisibility = true
+        config.injectorsDefaultRequire = 1
+    }
+""",
+)
+if "config(sourceSets.main, 'cubicchunks') { config ->" not in root_text:
+    raise SystemExit("Failed to migrate the DASM generator action closure")
+if "config(sourceSets.main, 'core') { config ->" not in root_text or "config(sourceSets.main, 'access') { config ->" not in root_text:
+    raise SystemExit("Failed to migrate the mixin generator action closures")
+root_build.write_text(root_text, encoding="utf-8")
+
 core_build = Path("CubicChunksCore/build.gradle")
 core_text = core_build.read_text(encoding="utf-8")
 if "jcenter()" in core_text:
@@ -56,8 +108,8 @@ if "grgit-core:3.1.1" in core_buildsrc_text or "jcenter()" in core_buildsrc_text
 core_buildsrc.write_text(core_buildsrc_text, encoding="utf-8")
 
 # CubicChunksCore is a submodule without its own settings file. Give it an
-# isolated build root so its Gradle 7.6 wrapper does not load the parent
-# Fabric/Loom build or the parent buildSrc project.
+# isolated build root for direct wrapper invocations and keep it available as
+# the root Gradle 9 project's included subproject.
 Path("CubicChunksCore/settings.gradle").write_text(
     "rootProject.name = 'CubicChunksCore'\n", encoding="utf-8"
 )
