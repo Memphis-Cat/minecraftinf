@@ -39,6 +39,9 @@ jobs:
       - name: Use cubic tick stores in integration server fixture
         run: python .github/scripts/fix-cubic-tick-fixture.py
 
+      - name: Run each generation matrix sequentially
+        run: python .github/scripts/optimize-generation-matrix.py
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -123,7 +126,8 @@ jobs:
                 .github/scripts/fix-runtime-tests.py \
                 .github/scripts/fix-runtime-access.py \
                 .github/scripts/fix-cubic-ticks.py \
-                .github/scripts/fix-cubic-tick-fixture.py
+                .github/scripts/fix-cubic-tick-fixture.py \
+                .github/scripts/optimize-generation-matrix.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
