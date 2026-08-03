@@ -1,0 +1,41 @@
+name: Fabric Source Snapshot
+
+on:
+  push:
+    branches:
+      - agent/cubicchunks3-fabric-26.2
+  workflow_dispatch:
+
+concurrency:
+  group: cubicchunks3-fabric-source-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Create source snapshot
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=.gradle \
+            --exclude='**/build' \
+            --exclude='**/.gradle' \
+            -czf fabric-port-source.tar.gz .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabric-port-source
+          path: fabric-port-source.tar.gz
+          retention-days: 2
