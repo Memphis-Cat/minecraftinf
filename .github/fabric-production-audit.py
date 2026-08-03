@@ -9,6 +9,7 @@ ROOT = Path("src/main/java")
 TEST_ROOT = Path("src/test/java")
 
 STORAGE = ROOT / "io/github/opencubicchunks/cubicchunks/mixin/core/common/world/level/chunk/storage/MixinChunkStorage.java"
+LEVEL_MIXIN = ROOT / "io/github/opencubicchunks/cubicchunks/mixin/core/common/world/level/MixinLevel.java"
 PACKET = ROOT / "io/github/opencubicchunks/cubicchunks/network/CCClientboundLevelCubeWithLightPacket.java"
 PACKET_DATA = ROOT / "io/github/opencubicchunks/cubicchunks/network/CCClientboundLevelCubePacketData.java"
 LIGHT_DATA = ROOT / "io/github/opencubicchunks/cubicchunks/network/CCClientboundCubeLightData.java"
@@ -30,6 +31,12 @@ REQUIRED_STORAGE = (
     "this.write(cloPos.chunkPos(), chunkData);",
     "throw new IllegalStateException(\"Cube write bypassed CubeStorage for \" + cloPos);",
 )
+
+RUNTIME_REQUIREMENTS = {
+    LEVEL_MIXIN: (
+        "return original.call(chunkSource, x, z);",
+    ),
+}
 
 NETWORK_REQUIREMENTS = {
     PACKET: (
@@ -79,6 +86,16 @@ GLOBAL_FORBIDDEN = (
 )
 
 
+def require_markers(failures: list[str], path: Path, markers: tuple[str, ...], category: str) -> None:
+    if not path.is_file():
+        failures.append(f"missing required {category} source/test: {path}")
+        return
+    text = path.read_text(encoding="utf-8")
+    for marker in markers:
+        if marker not in text:
+            failures.append(f"missing completed {category} behavior in {path}: {marker}")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -93,17 +110,16 @@ def main() -> int:
             if marker not in storage_text:
                 failures.append(f"missing completed storage behavior in {STORAGE}: {marker}")
 
+    for path, markers in RUNTIME_REQUIREMENTS.items():
+        require_markers(failures, path, markers, "runtime")
+
     for path, markers in NETWORK_REQUIREMENTS.items():
-        if not path.is_file():
-            failures.append(f"missing completed network source/test: {path}")
-            continue
-        text = path.read_text(encoding="utf-8")
-        for marker in markers:
-            if marker not in text:
-                failures.append(f"missing completed network behavior in {path}: {marker}")
-        for marker in NETWORK_FORBIDDEN:
-            if marker in text:
-                failures.append(f"unfinished network marker in {path}: {marker}")
+        require_markers(failures, path, markers, "network")
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            for marker in NETWORK_FORBIDDEN:
+                if marker in text:
+                    failures.append(f"unfinished network marker in {path}: {marker}")
 
     for path in ROOT.rglob("*.java"):
         text = path.read_text(encoding="utf-8")
@@ -117,7 +133,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print("Fabric 26.2 production audit passed: storage, cube networking, light data and block-entity payloads are implemented and tested.")
+    print("Fabric 26.2 production audit passed: storage, vanilla fallbacks, cube networking, light data and block-entity payloads are implemented and tested.")
     return 0
 
 
