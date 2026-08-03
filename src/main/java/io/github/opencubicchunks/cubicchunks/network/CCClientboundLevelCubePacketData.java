@@ -48,7 +48,7 @@ public final class CCClientboundLevelCubePacketData {
         List<BlockEntityInfo> blockEntities = new ArrayList<>(cube.getBlockEntities().size());
         for (Entry<BlockPos, BlockEntity> entry : cube.getBlockEntities().entrySet()) {
             BlockEntity blockEntity = entry.getValue();
-            if (!cube.cc_getCubePos().contains(blockEntity.getBlockPos())) {
+            if (!contains(cube.cc_getCubePos(), blockEntity.getBlockPos())) {
                 throw new IllegalStateException("Block entity " + blockEntity.getBlockPos() + " is outside cube " + cube.cc_getCubePos());
             }
             blockEntities.add(BlockEntityInfo.create(blockEntity));
@@ -100,7 +100,7 @@ public final class CCClientboundLevelCubePacketData {
 
     public void validateFor(CubePos cubePos) {
         for (BlockEntityInfo blockEntity : this.blockEntitiesData) {
-            if (!cubePos.contains(blockEntity.pos())) {
+            if (!contains(cubePos, blockEntity.pos())) {
                 throw new DecoderException("Block entity " + blockEntity.pos() + " is outside packet cube " + cubePos);
             }
         }
@@ -146,6 +146,12 @@ public final class CCClientboundLevelCubePacketData {
         if (output.writerIndex() != output.capacity()) {
             throw new IllegalStateException("Did not fill cube buffer: expected " + output.capacity() + " bytes, got " + output.writerIndex());
         }
+    }
+
+    private static boolean contains(CubePos cubePos, BlockPos pos) {
+        return pos.getX() >= cubePos.minCubeX() && pos.getX() <= cubePos.maxCubeX()
+                && pos.getY() >= cubePos.minCubeY() && pos.getY() <= cubePos.maxCubeY()
+                && pos.getZ() >= cubePos.minCubeZ() && pos.getZ() <= cubePos.maxCubeZ();
     }
 
     public record BlockEntityInfo(BlockPos pos, BlockEntityType<?> type, @Nullable CompoundTag tag) {
