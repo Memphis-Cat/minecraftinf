@@ -1,5 +1,5 @@
 plugins {
-    id 'base'
+    id 'java-library'
     id 'io.github.opencubicchunks.javaheaders' version '1.2.8'
 }
 
