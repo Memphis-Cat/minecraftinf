@@ -104,7 +104,7 @@ public class MixinPlayerChunkSender {
 
     @Unique
     private static void cc_sendCube(ServerGamePacketListenerImpl packetListener, ServerLevel level, LevelCube cube) {
-        ServerPlayNetworking.send(packetListener.player, new CCClientboundLevelCubeWithLightPacket(cube));
+        ServerPlayNetworking.send(packetListener.player, new CCClientboundLevelCubeWithLightPacket(cube, level.getLightEngine()));
     }
 
     @Unique
