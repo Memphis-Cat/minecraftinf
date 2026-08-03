@@ -97,20 +97,35 @@ repositories {
     maven { url = 'https://jitpack.io' }
 }
 
+def javaHeadersLinked = org.gradle.api.attributes.Attribute.of('javaHeadersLinked', Boolean)
+
 configurations {
     libraries
     implementation.extendsFrom libraries
+    cubicCoreHeaders {
+        canBeConsumed = false
+        canBeResolved = true
+        attributes.attribute(javaHeadersLinked, true)
+    }
+}
+
+// javaheaders 1.2.8 opts every resolvable configuration into its artifact
+// transform. Loom's Minecraft 26.2 artifacts must remain untouched; only the
+// CubicChunksCore header jar is eligible for the redirect transform.
+configurations.configureEach {
+    if (canBeResolved && name != 'cubicCoreHeaders') {
+        attributes.attribute(javaHeadersLinked, false)
+    }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings loom.officialMojangMappings()
 
     implementation "net.fabricmc:fabric-loader:${loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     implementation "io.github.llamalad7:mixinextras-fabric:${mixinextras_version}"
 
-    implementation(project(':CubicChunksCore')) {
+    cubicCoreHeaders(project(':CubicChunksCore')) {
         attributes {
             attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements, LibraryElements.JAR))
         }
@@ -128,6 +143,16 @@ dependencies {
     testImplementation 'org.mockito:mockito-core:5.20.0'
     testImplementation 'org.assertj:assertj-core:3.27.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets.main.compileClasspath += configurations.cubicCoreHeaders
+sourceSets.main.runtimeClasspath += configurations.cubicCoreHeaders
+
+tasks.register('printMainCompileClasspath') {
+    group = 'verification'
+    doLast {
+        sourceSets.main.compileClasspath.files.toList().sort().each { println it }
+    }
 }
 
 tasks.register('generatePackageInfo') {
