@@ -1,0 +1,39 @@
+plugins {
+    id 'base'
+    id 'io.github.opencubicchunks.javaheaders' version '1.2.8'
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://jitpack.io' }
+}
+
+javaHeaders {
+    setAcceptedJars('.*CubicChunksCore.*')
+    setConfig(rootProject.file('javaHeaders.json'))
+}
+
+configurations {
+    linkedCore {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+}
+
+dependencies {
+    linkedCore files(rootProject.layout.projectDirectory.file('CubicChunksCore/build/libs/CubicChunksCore.jar'))
+}
+
+def linkedOutput = rootProject.layout.buildDirectory.file('fabric-header-libs/CubicChunksCore-linked.jar')
+
+tasks.register('linkCoreHeaders', Copy) {
+    dependsOn ':CubicChunksCore:jar'
+    from(configurations.linkedCore)
+    into(linkedOutput.map { it.asFile.parentFile })
+    rename { 'CubicChunksCore-linked.jar' }
+    doLast {
+        if (!linkedOutput.get().asFile.isFile()) {
+            throw new GradleException("JavaHeaders did not create ${linkedOutput.get().asFile}")
+        }
+    }
+}
