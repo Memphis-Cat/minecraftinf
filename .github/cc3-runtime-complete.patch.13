@@ -49,7 +49,7 @@ index df96e9b..4bad989 100644
  import net.neoforged.testframework.junit.EphemeralTestServerProvider;
  import org.junit.jupiter.api.Test;
  import org.junit.jupiter.api.extension.ExtendWith;
-@@ -46,6 +57,42 @@ public class TestCubeStorage extends BaseTest {
+@@ -46,6 +57,49 @@ public class TestCubeStorage extends BaseTest {
          assertTrue(loaded.isLightCorrect());
      }
  
@@ -71,5 +71,7 @@ index df96e9b..4bad989 100644
 +        offsets.add((short) 1234);
 +        original.addPackedPostProcess(offsets, 0);
 +        BlockPos blockEntityPos = cubePos.asBlockPos(3, 4, 5);
++        original.setBlockState(blockEntityPos, Blocks.CHEST.defaultBlockState());
++        original.removeBlockEntity(blockEntityPos);
 +        CompoundTag blockEntityTag = new CompoundTag();
 +        blockEntityTag.putString("id", "minecraft:
