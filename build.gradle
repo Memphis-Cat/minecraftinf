@@ -126,7 +126,6 @@ tasks.register('printMainCompileClasspath') {
     dependsOn ':headerLinker:linkCoreHeaders'
     doLast {
         println "loom.disableObfuscation=${loom.disableObfuscation()}"
-        println "loom.dontRemap=${loom.dontRemap()}"
         sourceSets.main.compileClasspath.files.toList().sort().each { println it }
     }
 }
