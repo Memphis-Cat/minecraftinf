@@ -1,0 +1,106 @@
+name: Fabric 26.2 API Snapshot
+
+on:
+  push:
+    branches:
+      - agent/cubicchunks3-fabric-26.2
+    paths:
+      - .github/workflows/fabric-26.2-api-snapshot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build CubicChunksCore
+        id: core
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p .github/generated
+          chmod +x CubicChunksCore/gradlew
+          ./CubicChunksCore/gradlew -p CubicChunksCore assemble --stacktrace --no-daemon 2>&1 | tee .github/generated/fabric-26.2-api-snapshot.txt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Resolve named Minecraft jar
+        id: resolve
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew .github/link-cubic-core.sh
+          {
+            python .github/fabric-gradle9-migrate.py
+            python .github/fabric-api26-source-migrate.py
+            python .github/fabric-api26-finalize.py
+            .github/link-cubic-core.sh
+            ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon
+          } 2>&1 | tee -a .github/generated/fabric-26.2-api-snapshot.txt
+
+      - name: Append public API signatures
+        id: signatures
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          jar="$HOME/.gradle/caches/fabric-loom/26.2/minecraft-client.jar"
+          {
+            echo
+            echo "=== JAR $jar ==="
+            ls -l "$jar"
+            echo
+            for class in \
+              net.minecraft.resources.ResourceKey \
+              net.minecraft.world.level.ChunkPos \
+              net.minecraft.world.level.chunk.storage.ChunkStorage \
+              net.minecraft.world.level.chunk.storage.IOWorker \
+              net.minecraft.world.level.chunk.storage.RegionFileStorage \
+              net.minecraft.world.level.chunk.storage.SimpleRegionStorage \
+              net.minecraft.world.level.chunk.storage.ChunkScanAccess; do
+              echo "=== $class ==="
+              if jar tf "$jar" | grep -q "^${class//.//}\.class$"; then
+                javap -classpath "$jar" -p -s "$class"
+              else
+                echo 'CLASS ABSENT'
+              fi
+              echo
+            done
+          } 2>&1 | tee -a .github/generated/fabric-26.2-api-snapshot.txt
+
+      - name: Commit snapshot
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo
+            echo '=== STEP RESULTS ==='
+            echo 'core=${{ steps.core.outcome }}'
+            echo 'resolve=${{ steps.resolve.outcome }}'
+            echo 'signatures=${{ steps.signatures.outcome }}'
+          } >> .github/generated/fabric-26.2-api-snapshot.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/generated/fabric-26.2-api-snapshot.txt
+          git diff --cached --check
+          git commit -m 'Record Minecraft 26.2 public API snapshot'
+          git push origin HEAD:agent/cubicchunks3-fabric-26.2
