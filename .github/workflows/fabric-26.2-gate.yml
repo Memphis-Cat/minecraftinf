@@ -128,8 +128,8 @@ jobs:
             local group=$!
             for _ in $(seq 1 420); do
               if grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' "$log_file"; then
-                python .github/scripts/minecraft_rcon.py --host 127.0.0.1 --port 25579 --password cubicchunks-ci save-all flush
-                python .github/scripts/minecraft_rcon.py --host 127.0.0.1 --port 25579 --password cubicchunks-ci stop
+                python .github/scripts/minecraft_rcon.py 'save-all flush' --host 127.0.0.1 --port 25579 --password cubicchunks-ci
+                python .github/scripts/minecraft_rcon.py stop --host 127.0.0.1 --port 25579 --password cubicchunks-ci --allow-disconnect
                 for _ in $(seq 1 180); do
                   if ! kill -0 "$group" >/dev/null 2>&1; then
                     wait "$group" >/dev/null 2>&1 || true
