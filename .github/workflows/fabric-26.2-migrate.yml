@@ -53,14 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x CubicChunksCore/gradlew
-          curl -fsSL -o /tmp/temurin17.tar.gz 'https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse'
-          mkdir -p /tmp/temurin17
-          tar -xzf /tmp/temurin17.tar.gz -C /tmp/temurin17 --strip-components=1
-          (
-            cd CubicChunksCore
-            JAVA_HOME=/tmp/temurin17 PATH=/tmp/temurin17/bin:$PATH ./gradlew clean assemble testsJar --stacktrace --no-daemon
-          ) 2>&1 | tee fabric-migration-core.log
+          ./gradlew :CubicChunksCore:clean :CubicChunksCore:assemble :CubicChunksCore:testsJar --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
           test -s CubicChunksCore/build/libs/CubicChunksCore-tests.jar
 
