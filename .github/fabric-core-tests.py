@@ -73,4 +73,5 @@ if "def coreTestsJar = file(" not in text:
 path.write_text(text, encoding="utf-8")
 runpy.run_path(".github/fabric-runtime-fixes.py", run_name="__fabric_runtime_fixes__")
 runpy.run_path(".github/fabric-test26-migrate.py", run_name="__fabric_test26_migrate__")
+runpy.run_path(".github/fabric-test26-finalize.py", run_name="__fabric_test26_finalize__")
 print("Configured CubicChunksCore and Fabric 26.2 tests for the parent runtime")
