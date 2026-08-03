@@ -40,6 +40,21 @@ elif "GeneratePackageInfo.generateFiles" in core_text:
     raise SystemExit("Could not isolate CubicChunksCore's package-info generator")
 core_build.write_text(core_text, encoding="utf-8")
 
+core_buildsrc = Path("CubicChunksCore/buildSrc/build.gradle")
+core_buildsrc_text = core_buildsrc.read_text(encoding="utf-8")
+core_buildsrc_text = core_buildsrc_text.replace("jcenter()", "mavenCentral()")
+core_buildsrc_text = core_buildsrc_text.replace(
+    'org.ajoberstar.grgit:grgit-core:3.1.1',
+    'org.ajoberstar.grgit:grgit-core:5.3.0',
+)
+core_buildsrc_text = core_buildsrc_text.replace(
+    "name: 'gson', version: '2.8.5'",
+    "name: 'gson', version: '2.14.0'",
+)
+if "grgit-core:3.1.1" in core_buildsrc_text or "jcenter()" in core_buildsrc_text:
+    raise SystemExit("CubicChunksCore buildSrc dependency migration was incomplete")
+core_buildsrc.write_text(core_buildsrc_text, encoding="utf-8")
+
 # CubicChunksCore is a submodule without its own settings file. Give it an
 # isolated build root so its Gradle 7.6 wrapper does not load the parent
 # Fabric/Loom build or the parent buildSrc project.
