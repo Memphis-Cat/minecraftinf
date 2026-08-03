@@ -12,12 +12,12 @@ public class CCNetworkHandler {
 
     @SubscribeEvent
     public static void register(final RegisterPayloadHandlersEvent event) {
-        // Sets the current network version
         final PayloadRegistrar registrar = event.registrar(CubicChunks.MODID);
 
-        // Note that by default handlers run on the main thread.
         registrar.playToClient(CCClientboundLevelCubeWithLightPacket.TYPE, CCClientboundLevelCubeWithLightPacket.STREAM_CODEC,
                 new CCClientboundLevelCubeWithLightPacket.Handler());
+        registrar.playToClient(CCClientboundCubeLightUpdatePacket.TYPE, CCClientboundCubeLightUpdatePacket.STREAM_CODEC,
+                new CCClientboundCubeLightUpdatePacket.Handler());
         registrar.playToClient(CCClientboundForgetLevelCloPacket.TYPE, CCClientboundForgetLevelCloPacket.STREAM_CODEC,
                 new CCClientboundForgetLevelCloPacket.Handler());
         registrar.playToClient(CCClientboundSetCubeCacheCenterPacket.TYPE, CCClientboundSetCubeCacheCenterPacket.STREAM_CODEC,
