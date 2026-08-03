@@ -12,6 +12,8 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   migrate-validate-commit:
@@ -45,25 +47,17 @@ jobs:
           python .github/fabric-api26-finalize.py
           chmod +x gradlew .github/link-cubic-core.sh
 
-      - name: Set up Java 17 for CubicChunksCore
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
       - name: Build and test CubicChunksCore
         shell: bash
         run: |
           set -euo pipefail
           chmod +x CubicChunksCore/gradlew
-          ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
+          export JAVA_HOME_25="$JAVA_HOME"
+          curl -fsSL -o /tmp/temurin17.tar.gz 'https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse'
+          mkdir -p /tmp/temurin17
+          tar -xzf /tmp/temurin17.tar.gz -C /tmp/temurin17 --strip-components=1
+          JAVA_HOME=/tmp/temurin17 PATH=/tmp/temurin17/bin:$PATH ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-migration-core.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
-
-      - name: Restore Java 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
 
       - name: Link core and prepare Minecraft headers
         shell: bash
@@ -166,6 +160,12 @@ jobs:
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-first.log
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-second.log
 
+      - name: Reject unfinished production stubs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/fabric-production-audit.py
+
       - name: Commit fully validated migrated runtime
         if: github.event_name == 'push'
         shell: bash
@@ -176,7 +176,6 @@ jobs:
             echo 'Port branch moved during validation; refusing to overwrite it.'
             exit 1
           fi
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add build.gradle src/main/java src/main/resources .github/widen-minecraft-headers.py
@@ -204,3 +203,55 @@ jobs:
             run/fabric-26-2-migration-world/cubicchunks/**
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Report gate result on pull request 2
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          GATE_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- cubicchunks-fabric-26.2-branch-gate -->';
+            const files = [
+              'fabric-migration-core.log',
+              'fabric-migration-link.log',
+              'fabric-migration-classpath.log',
+              'fabric-migration-compile.log',
+              'fabric-migration-test.log',
+              'fabric-migration-build.log',
+              'fabric-migration-server-first.log',
+              'fabric-migration-server-second.log',
+              'fabric-migration-world-missing.txt'
+            ];
+            let body = `${marker}\n## Fabric 26.2 branch gate: **${process.env.GATE_STATUS}**\n\n`;
+            for (const file of files) {
+              if (!fs.existsSync(file)) continue;
+              const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+              const tail = lines.slice(-180).join('\n');
+              if (!tail.trim()) continue;
+              body += `<details><summary>${file} (last ${Math.min(lines.length, 180)} lines)</summary>\n\n\`\`\`text\n${tail}\n\`\`\`\n</details>\n\n`;
+            }
+            if (body.length > 60000) body = body.slice(0, 60000) + '\n\n[truncated]';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 2,
+              per_page: 100
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 2,
+                body
+              });
+            }
