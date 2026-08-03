@@ -35,12 +35,12 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Apply ProtoCube unload fix
+      - name: Apply ProtoCube unload and storage concurrency fixes
         run: |
           set -euo pipefail
           chmod +x gradlew
           echo "BRANCH_START=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          git apply --index .github/cc3-protocube-unload.patch
+          python .github/cc3-protocube-unload.patch
 
       - name: Format source
         run: ./gradlew spotlessApply --stacktrace --no-daemon
@@ -85,7 +85,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/cc3-protocube-unload.patch
           git add -A
-          git commit -m "Handle ProtoCube unloads without chunk casts"
+          git commit -m "Make cube unload persistence thread-safe"
           git push origin HEAD:agent/cubicchunks3-phase1
 
       - name: Upload validation reports
