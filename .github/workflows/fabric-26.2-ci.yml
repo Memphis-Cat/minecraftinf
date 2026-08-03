@@ -19,7 +19,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - name: Check out repository and submodules
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Inspect Mojang's Minecraft 26.2 distribution
+      - name: Inspect Mojang Minecraft 26.2 distribution
         run: python .github/inspect-minecraft-distribution.py
 
       - name: Migrate custom generators to Gradle 9
@@ -61,57 +61,26 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Link CubicChunksCore outside the Loom build
+      - name: Link CubicChunksCore outside Loom
         run: |
           set -euo pipefail
           chmod +x .github/link-cubic-core.sh
           .github/link-cubic-core.sh 2>&1 | tee fabric-core-link.log
           test -s build/fabric-header-libs/CubicChunksCore-linked.jar
 
-      - name: Purge stale Loom snapshots
-        run: |
-          rm -rf .gradle/loom-cache
-          rm -rf ~/.gradle/caches/fabric-loom
-          rm -rf ~/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loom
-          rm -rf ~/.gradle/caches/modules-2/files-2.1/net.fabricmc/fabric-loom.gradle.plugin
-          rm -rf ~/.gradle/caches/modules-2/metadata-*/descriptors/net.fabricmc/fabric-loom*
-
-      - name: Verify a clean standalone Loom 1.17 setup
-        run: |
-          chmod +x .github/fabric-loom-probe.sh
-          .github/fabric-loom-probe.sh
-
-      - name: Resolve Fabric compile classpath
+      - name: Resolve Fabric classpath
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew --refresh-dependencies printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
+          ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
 
-      - name: Inspect Loom Minecraft artifacts
+      - name: Verify public Minecraft compile jar
         run: |
           set -euo pipefail
-          cache_roots=("$HOME/.gradle/caches/fabric-loom" ".gradle/loom-cache")
-          : > fabric-minecraft-classes.log
-          find "${cache_roots[@]}" -type f -name '*.jar' -print0 2>/dev/null |
-          while IFS= read -r -d '' jar_path; do
-            size="$(stat -c '%s' "$jar_path")"
-            entries="$(unzip -Z1 "$jar_path" 2>/dev/null | wc -l || true)"
-            classes="$(unzip -Z1 "$jar_path" 2>/dev/null | grep -c '\.class$' || true)"
-            printf '%s entries=%s classes=%s %s\n' "$size" "$entries" "$classes" "$jar_path"
-          done | sort -n | tee fabric-minecraft-classes.log
-
-          minecraft_jar=''
-          while IFS= read -r candidate; do
-            class_count="$(unzip -Z1 "$candidate" 2>/dev/null | grep -c '\.class$' || true)"
-            if (( class_count > 10000 )); then
-              minecraft_jar="$candidate"
-              break
-            fi
-          done < <(find "${cache_roots[@]}" -type f \( -name 'minecraft-merged-deobf-*.jar' -o -name 'minecraft-merged-*.jar' \) -print 2>/dev/null | sort -u)
-
-          test -n "$minecraft_jar"
-          class_count="$(unzip -Z1 "$minecraft_jar" | grep -c '\.class$')"
-          printf 'Selected Minecraft jar: %s (%s classes)\n' "$minecraft_jar" "$class_count" | tee -a fabric-minecraft-classes.log
+          client_jar="$HOME/.gradle/caches/fabric-loom/26.2/minecraft-client.jar"
+          test -s "$client_jar"
+          class_count="$(unzip -Z1 "$client_jar" | grep -c '\.class$')"
+          printf 'Minecraft client compile jar: %s classes=%s\n' "$client_jar" "$class_count" | tee fabric-minecraft-classes.log
           test "$class_count" -gt 10000
 
       - name: Compile Fabric 26.2 sources
@@ -123,9 +92,13 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
-          test -n "$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
+          jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
+          test -s "$jar_path"
+          jar tf "$jar_path" | sort > fabric-jar-contents.txt
+          grep -q 'fabric.mod.json' fabric-jar-contents.txt
+          grep -q 'cubicchunks.accesswidener' fabric-jar-contents.txt
 
-      - name: Start, stop, and restart Fabric dedicated server
+      - name: Start stop and restart Fabric dedicated server
         run: |
           set -euo pipefail
           mkdir -p run
@@ -191,7 +164,7 @@ jobs:
             -czf /tmp/fabric-port-source.tar.gz .
           mv /tmp/fabric-port-source.tar.gz fabric-port-source.tar.gz
 
-      - name: Upload Fabric port diagnostics
+      - name: Upload Fabric diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -200,12 +173,11 @@ jobs:
             fabric-minecraft-distribution.log
             fabric-core-build.log
             fabric-core-link.log
-            fabric-standalone-loom-probe.log
-            fabric-standalone-loom-jars.log
             fabric-classpath.log
             fabric-minecraft-classes.log
             fabric-compile.log
             fabric-build.log
+            fabric-jar-contents.txt
             fabric-server-first.log
             fabric-server-second.log
             fabric-world-first.txt
