@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Wire CubicChunksCore's published test jar into the Fabric parent test runtime."""
+
+from pathlib import Path
+
+path = Path("build.gradle")
+text = path.read_text(encoding="utf-8")
+
+hamcrest = "    testImplementation 'org.hamcrest:hamcrest:2.2'\n"
+if hamcrest not in text:
+    anchor = "    testImplementation 'org.assertj:assertj-core:3.27.4'\n"
+    if anchor not in text:
+        raise SystemExit("Unable to locate the Fabric test dependency block")
+    text = text.replace(anchor, anchor + hamcrest, 1)
+
+snippet = r'''// CubicChunksCore disables its own Test task because its standalone jar only has
+// compile-time Minecraft headers. It publishes compiled tests separately so the
+// parent mod can execute them against the linked, Minecraft-backed Core jar.
+def coreTestsJar = file("${rootDir}/CubicChunksCore/build/libs/CubicChunksCore-tests.jar")
+def coreTestsClassesDir = layout.buildDirectory.dir('generated/core-tests/classes')
+
+def unpackCoreTests = tasks.register('unpackCoreTests', Sync) {
+    group = 'verification'
+    description = 'Unpacks CubicChunksCore tests without its untransformed Minecraft header classes.'
+    inputs.file(coreTestsJar)
+    outputs.dir(coreTestsClassesDir)
+    from({ zipTree(coreTestsJar) }) {
+        exclude 'META-INF/**'
+        exclude 'io/github/opencubicchunks/cc_core/minecraft/**'
+    }
+    into coreTestsClassesDir
+    doFirst {
+        if (!coreTestsJar.isFile() || coreTestsJar.length() == 0L) {
+            throw new GradleException("Missing ${coreTestsJar}; run CubicChunksCore:testsJar first")
+        }
+    }
+}
+
+def coreTest = tasks.register('coreTest', Test) {
+    group = 'verification'
+    description = 'Runs CubicChunksCore tests against the linked Fabric/Minecraft classpath.'
+    dependsOn unpackCoreTests, testClasses
+    testClassesDirs = files(coreTestsClassesDir)
+    classpath = sourceSets.test.runtimeClasspath + files(coreTestsClassesDir)
+    useJUnitPlatform()
+    shouldRunAfter tasks.named('test')
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    doFirst {
+        def discovered = fileTree(coreTestsClassesDir).matching { include '**/*Test.class' }.files.size()
+        if (discovered == 0) {
+            throw new GradleException("No CubicChunksCore test classes were unpacked from ${coreTestsJar}")
+        }
+        println "Running ${discovered} CubicChunksCore test classes"
+    }
+}
+
+tasks.named('check') {
+    dependsOn coreTest
+}
+
+'''
+
+if "def coreTestsJar = file(" not in text:
+    marker = "spotless {\n"
+    if marker not in text:
+        raise SystemExit("Unable to locate insertion point for CubicChunksCore tests")
+    text = text.replace(marker, snippet + marker, 1)
+
+path.write_text(text, encoding="utf-8")
+print("Configured CubicChunksCore tests for the Fabric parent runtime")
