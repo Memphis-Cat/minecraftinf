@@ -67,6 +67,11 @@ jobs:
           chmod +x gradlew
           ./gradlew printMainCompileClasspath dependencies --configuration compileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
 
+      - name: Verify the official standalone Loom 26.2 template
+        run: |
+          chmod +x .github/fabric-loom-probe.sh
+          .github/fabric-loom-probe.sh
+
       - name: Inspect Minecraft 26.2 classes
         run: |
           set -euo pipefail
@@ -171,6 +176,8 @@ jobs:
           path: |
             fabric-core-build.log
             fabric-classpath.log
+            fabric-standalone-loom-probe.log
+            fabric-standalone-loom-jars.log
             fabric-minecraft-classes.log
             fabric-compile.log
             fabric-build.log
