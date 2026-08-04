@@ -49,11 +49,37 @@ elif 'cc_captureCubePosInSetInitialSpawn' not in text:
     raise SystemExit('Unable to migrate MinecraftServer initial-spawn capture')
 write(path, text)
 
-# Replace the fragile injection into a DASM-generated method with a concrete overwrite.
+# Minecraft 26.2 replaced the static prepareLevels target formula with ChunkLoadCounter,
+# which observes the actual newly activated holders. Cubes and their backing columns are
+# therefore counted directly; the old Mth.square replacement must not remain.
+path = 'src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/MixinMinecraftServer.java'
+text = read(path)
+old_prepare = '''    @WrapOperation(method = "prepareLevels", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;square(I)I"))
+    private int cc_onPrepareLevels_computeTickingGeneratedCount(int value, Operation<Integer> original) {
+        if (!((CanBeCubic) overworld()).cc_isCubic()) {
+            return original.call(value);
+        }
+        int cubeRadius = Coords.sectionToCubeCeil(this.getGameRules().getInt(GameRules.RULE_SPAWN_CHUNK_RADIUS));
+        int cubeDiameter = cubeRadius * 2 + 1;
+        int chunkDiameter = cubeDiameter * CubicConstants.DIAMETER_IN_SECTIONS;
+        return cubeDiameter * cubeDiameter * cubeDiameter + chunkDiameter * chunkDiameter;
+    }
+
+'''
+text = text.replace(old_prepare, '')
+text = text.replace('import io.github.opencubicchunks.cc_core.api.CubicConstants;\n', '')
+text = text.replace('import io.github.opencubicchunks.cc_core.utils.Coords;\n', '')
+text = text.replace('import net.minecraft.world.level.GameRules;\n', '')
+text = text.replace('    @Shadow public abstract ServerLevel overworld();\n\n', '')
+text = text.replace('    @Shadow public abstract GameRules getGameRules();\n\n', '')
+if 'cc_onPrepareLevels_computeTickingGeneratedCount' in text:
+    raise SystemExit('Obsolete prepareLevels static-count hook remains')
+write(path, text)
+
+# Replace the fragile injection into a DASM-generated method with a concrete mixin helper.
 path = 'src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java'
 text = read(path)
-if 'import org.spongepowered.asm.mixin.Overwrite;\n' not in text:
-    text = text.replace('import org.spongepowered.asm.mixin.Mixin;\n', 'import org.spongepowered.asm.mixin.Mixin;\nimport org.spongepowered.asm.mixin.Overwrite;\n', 1)
+text = text.replace('import org.spongepowered.asm.mixin.Overwrite;\n', '')
 shadow = '''    @Shadow abstract CompletableFuture<ChunkResult<List<ChunkAccess>>> getChunkRangeFuture(
             ChunkHolder centerChunk, int range, IntFunction<ChunkStatus> distanceToStatus
     );
@@ -68,7 +94,6 @@ if start < 0 or end < 0:
     raise SystemExit('Unable to locate cc_getChunkRangeFuture region')
 end += len('    // endregion')
 body = '''    // region [cc_getChunkRangeFuture dasm + mixin]
-    @Overwrite
     @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
     @TransformFromMethod("getChunkRangeFuture(Lnet/minecraft/server/level/ChunkHolder;ILjava/util/function/IntFunction;)Ljava/util/concurrent/CompletableFuture;")
     private CompletableFuture<ChunkResult<List<CloAccess>>> cc_getChunkRangeFuture(
