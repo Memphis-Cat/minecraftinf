@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Implement cube-aware ChunkMap loading without injecting into a DASM-native method."""
+"""Implement cube-aware ChunkMap loading without copying vanilla's 2D loader."""
 
 from pathlib import Path
 
@@ -23,8 +23,7 @@ if start < 0 or end < 0:
 end += len("    // endregion")
 
 replacement = '''    // region [cc_scheduleChunkLoad dasm + mixin]
-    @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
-    @TransformFromMethod("scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")
+    @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")
     private CompletableFuture<CloAccess> cc_scheduleChunkLoad(CloPos cloPos) {
         if (!cloPos.isCube()) {
             return (CompletableFuture<CloAccess>) (CompletableFuture<?>) this.scheduleChunkLoad(cloPos.chunkPos());
@@ -51,7 +50,9 @@ replacement = '''    // region [cc_scheduleChunkLoad dasm + mixin]
 text = text[:start] + replacement + text[end:]
 
 # The concrete method delegates vanilla columns to vanilla scheduleChunkLoad and
-# cube data to CubeStorage, so the old transformed PoiManager redirect is gone.
+# cube data to CubeStorage. It must be registered as a redirect method, not as a
+# TransformFromMethod: the latter recopies vanilla's body and invents
+# PoiManager.prefetch(CloPos), an overload that does not exist at runtime.
 text = text.replace("import net.minecraft.world.entity.ai.village.poi.PoiManager;\n", "")
 text = text.replace("    @Shadow @Final private PoiManager poiManager;\n", "")
 
@@ -62,9 +63,11 @@ for obsolete in (
     '@Dynamic @Redirect(method = "cc_scheduleChunkLoad',
     "private native CompletableFuture<CloAccess> cc_scheduleChunkLoad(CloPos",
     "@Shadow private abstract CompletableFuture<ChunkAccess> scheduleChunkLoad",
+    '@TransformFromMethod("scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")',
+    "PoiManager.prefetch(CloPos)",
 ):
     if obsolete in text:
         raise SystemExit(f"Obsolete cc_scheduleChunkLoad implementation remains: {obsolete}")
 
 path.write_text(text, encoding="utf-8")
-print("Implemented concrete Minecraft 26.2 cube loading")
+print("Implemented concrete Minecraft 26.2 cube loading without recopying vanilla POI loading")
