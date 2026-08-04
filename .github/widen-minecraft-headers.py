@@ -134,13 +134,13 @@ def patch_members(
     return offset
 
 
-def is_signature_metadata(filename: str) -> bool:
-    """Return true for JAR signature files invalidated by class rewriting."""
+def is_invalidated_signature_metadata(filename: str) -> bool:
+    """Remove all signing metadata invalidated when class bytes are rewritten."""
     upper = filename.upper()
     if not upper.startswith("META-INF/"):
         return False
     leaf = upper.rsplit("/", 1)[-1]
-    return leaf.endswith((".SF", ".RSA", ".DSA", ".EC")) or leaf.startswith("SIG-")
+    return leaf == "MANIFEST.MF" or leaf.endswith((".SF", ".RSA", ".DSA", ".EC")) or leaf.startswith("SIG-")
 
 
 def patch_class(
@@ -206,11 +206,11 @@ def main() -> None:
     found_fields: set[MemberTarget] = set()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    stripped_signatures = 0
+    stripped_signature_metadata = 0
     with zipfile.ZipFile(args.input, "r") as source, zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_DEFLATED) as target:
         for info in source.infolist():
-            if is_signature_metadata(info.filename):
-                stripped_signatures += 1
+            if is_invalidated_signature_metadata(info.filename):
+                stripped_signature_metadata += 1
                 continue
             payload = source.read(info.filename)
             if info.filename.endswith(".class"):
@@ -226,7 +226,7 @@ def main() -> None:
     missing_methods = sorted(methods - found_methods, key=lambda item: (item.owner, item.name, item.descriptor))
     missing_fields = sorted(fields - found_fields, key=lambda item: (item.owner, item.name, item.descriptor))
     print(f"Widened {len(found_classes)} classes, {len(found_methods)} methods, and {len(found_fields)} fields")
-    print(f"Removed {stripped_signatures} invalidated JAR signature files")
+    print(f"Removed {stripped_signature_metadata} invalidated JAR signing metadata files")
     if missing_classes:
         print("Access-widener classes absent from Minecraft 26.2 (source migration still required):")
         for value in missing_classes:
