@@ -14,6 +14,17 @@ if hamcrest not in text:
         raise SystemExit("Unable to locate the Fabric test dependency block")
     text = text.replace(anchor, anchor + hamcrest, 1)
 
+# Loom's merged 26.2 artifact is resources-only in this project. Production
+# compilation already uses the widened Mojang distribution; tests must use the
+# same classes at runtime or JUnit cannot load Level, DistanceManager and the
+# rest of Minecraft's public classes.
+test_minecraft_runtime = "    testRuntimeOnly files(widenedMinecraftClientJar)\n"
+if test_minecraft_runtime not in text:
+    anchor = "    compileOnly files(widenedMinecraftClientJar)\n"
+    if anchor not in text:
+        raise SystemExit("Unable to locate the widened Minecraft 26.2 compile dependency")
+    text = text.replace(anchor, anchor + test_minecraft_runtime, 1)
+
 snippet = r'''// CubicChunksCore disables its own Test task because its standalone jar only has
 // compile-time Minecraft headers. It publishes compiled tests separately so the
 // parent mod can execute them against the linked, Minecraft-backed Core jar.
@@ -39,13 +50,14 @@ def unpackCoreTests = tasks.register('unpackCoreTests', Sync) {
 
 tasks.named('test') {
     enabled = true
+    dependsOn prepareMinecraftCompileHeaders
 }
 
 def coreTest = tasks.register('coreTest', Test) {
     enabled = true
     group = 'verification'
     description = 'Runs CubicChunksCore tests against the linked Fabric/Minecraft classpath.'
-    dependsOn unpackCoreTests, testClasses
+    dependsOn unpackCoreTests, testClasses, prepareMinecraftCompileHeaders
     testClassesDirs = files(coreTestsClassesDir)
     classpath = sourceSets.test.runtimeClasspath + files(coreTestsClassesDir)
     useJUnitPlatform()
