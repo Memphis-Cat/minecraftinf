@@ -2,11 +2,24 @@ package io.github.opencubicchunks.cubicchunks.mixin;
 
 import static org.objectweb.asm.Opcodes.*;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import io.github.notstirred.dasm.api.provider.MappingsProvider;
+import io.github.notstirred.dasm.mod.DasmBootstrap;
+import io.github.notstirred.dasm.mod.DasmExtension;
+import io.github.notstirred.dasm.util.CachingClassProvider;
 import io.github.opencubicchunks.cc_core.annotation.Public;
 import io.github.opencubicchunks.cubicchunks.util.asm.FactoryFromConstructor;
 import org.objectweb.asm.Type;
@@ -15,11 +28,45 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
+import org.spongepowered.asm.service.IMixinService;
+import org.spongepowered.asm.service.MixinService;
 
 public class ASMConfigPlugin implements IMixinConfigPlugin {
+    private static final String DASM_CONFIG = "cubicchunks.dasm.json";
+
     public ASMConfigPlugin() {}
 
-    @Override public void onLoad(String mixinPackage) {}
+    @Override public void onLoad(String mixinPackage) {
+        IMixinService mixinService = MixinService.getService();
+        CachingClassProvider classProvider = new CachingClassProvider(className -> {
+            String resource = className.replace('.', '/') + ".class";
+            try (InputStream stream = mixinService.getResourceAsStream(resource)) {
+                if (stream == null) {
+                    return Optional.empty();
+                }
+                return Optional.of(stream.readAllBytes());
+            } catch (IOException exception) {
+                throw new IllegalStateException("Unable to read DASM class resource " + resource, exception);
+            }
+        });
+
+        DasmExtension extension = DasmBootstrap.init(MappingsProvider.IDENTITY, classProvider);
+        try (InputStream stream = mixinService.getResourceAsStream(DASM_CONFIG)) {
+            if (stream == null) {
+                throw new IllegalStateException("Missing required DASM config " + DASM_CONFIG);
+            }
+            JsonObject config = JsonParser.parseReader(new InputStreamReader(stream, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonArray classes = config.getAsJsonArray("dasm");
+            if (classes == null || classes.isEmpty()) {
+                throw new IllegalStateException("DASM config contains no transform classes: " + DASM_CONFIG);
+            }
+            for (JsonElement element : classes) {
+                extension.shouldApplyMixin(element.getAsString());
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to read DASM config " + DASM_CONFIG, exception);
+        }
+    }
 
     @Override public String getRefMapperConfig() {
         return null;
