@@ -1,141 +1,252 @@
 package io.github.opencubicchunks.cubicchunks.world.level.chunk.status;
 
+import java.util.EnumSet;
 import java.util.concurrent.CompletableFuture;
 
 import com.mojang.logging.LogUtils;
 import io.github.notstirred.dasm.api.annotations.Dasm;
-import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddFieldToSets;
-import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddTransformToSets;
-import io.github.notstirred.dasm.api.annotations.selector.Ref;
-import io.github.notstirred.dasm.api.annotations.transform.TransformFromMethod;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkInCubicContextSet;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.status.CubeStatusTasks;
+import net.minecraft.SharedConstants;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ThreadedLevelLightEngine;
+import net.minecraft.server.level.WorldGenRegion;
+import net.minecraft.util.ProblemReporter;
 import net.minecraft.util.StaticCache2D;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ImposterProtoChunk;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkStatusTasks;
 import net.minecraft.world.level.chunk.status.ChunkStep;
 import net.minecraft.world.level.chunk.status.WorldGenContext;
+import net.minecraft.world.level.levelgen.BelowZeroRetrogen;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.level.storage.ValueInput;
 import org.slf4j.Logger;
 
 /**
- * Equivalent of {@link ChunkStatusTasks} for chunks in cubic worlds.
- * <p>
- * Vanilla columns remain authoritative for terrain-generation metadata. Cubes project the
- * generated sections into sparse three-dimensional storage instead of maintaining a second
- * terrain generator.
- * </p>
- * <p>
- * See also {@link CubeStatusTasks} for the cube projection tasks.
- * </p>
+ * Minecraft 26.2 {@link ChunkStatusTasks} implementation used for the backing
+ * chunk columns of cubic worlds.
+ *
+ * <p>Vanilla columns remain authoritative for terrain-generation metadata.
+ * Cubes project their generated sections into sparse three-dimensional storage;
+ * these methods therefore intentionally preserve the current vanilla task
+ * semantics instead of depending on runtime DASM method cloning.</p>
+ *
+ * <p>See also {@link CubeStatusTasks} for the cube projection tasks.</p>
  */
 @Dasm(ChunkInCubicContextSet.class)
 public final class CCChunkStatusTasks {
-    @AddFieldToSets(containers = ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class, field = "LOGGER:Lorg/slf4j/Logger;")
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private CCChunkStatusTasks() {}
+    private CCChunkStatusTasks() {
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "isLighted(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z")
-    private static native boolean isLighted(ChunkAccess chunk);
+    private static boolean isLighted(ChunkAccess chunk) {
+        return chunk.getPersistedStatus().isOrAfter(ChunkStatus.LIGHT) && chunk.isLightCorrect();
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "passThrough(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> passThrough(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> passThrough(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateStructureStarts(Lnet/minecraft/world/level/chunk/status/WorldGenContext;"
-            + "Lnet/minecraft/world/level/chunk/status/ChunkStep;Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)"
-            + "Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateStructureStarts(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateStructureStarts(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        if (level.getServer().getWorldGenSettings().options().generateStructures()) {
+            context.generator().createStructures(
+                    level.registryAccess(),
+                    level.getChunkSource().getGeneratorState(),
+                    level.structureManager(),
+                    chunk,
+                    context.structureManager(),
+                    level.dimension()
+            );
+        }
+        level.onStructureStartsAvailable(chunk);
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "loadStructureStarts(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> loadStructureStarts(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> loadStructureStarts(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        context.level().onStructureStartsAvailable(chunk);
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateStructureReferences(Lnet/minecraft/world/level/chunk/status/WorldGenContext;"
-            + "Lnet/minecraft/world/level/chunk/status/ChunkStep;Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)"
-            + "Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateStructureReferences(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateStructureReferences(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        context.generator().createReferences(region, level.structureManager().forWorldGenRegion(region), chunk);
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateBiomes(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateBiomes(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateBiomes(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        return context.generator().createBiomes(
+                level.getChunkSource().randomState(),
+                Blender.of(region),
+                level.structureManager().forWorldGenRegion(region),
+                chunk
+        );
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateNoise(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateNoise(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateNoise(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        return context.generator()
+                .fillFromNoise(
+                        Blender.of(region),
+                        level.getChunkSource().randomState(),
+                        level.structureManager().forWorldGenRegion(region),
+                        chunk
+                )
+                .thenApply(generatedChunk -> {
+                    if (generatedChunk instanceof ProtoChunk protoChunk) {
+                        BelowZeroRetrogen belowZeroRetrogen = protoChunk.getBelowZeroRetrogen();
+                        if (belowZeroRetrogen != null) {
+                            BelowZeroRetrogen.replaceOldBedrock(protoChunk);
+                            if (belowZeroRetrogen.hasBedrockHoles()) {
+                                belowZeroRetrogen.applyBedrockMask(protoChunk);
+                            }
+                        }
+                    }
+                    return generatedChunk;
+                });
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateSurface(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateSurface(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateSurface(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        context.generator().buildSurface(
+                region,
+                level.structureManager().forWorldGenRegion(region),
+                level.getChunkSource().randomState(),
+                chunk
+        );
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateCarvers(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateCarvers(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateCarvers(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        if (chunk instanceof ProtoChunk protoChunk) {
+            Blender.addAroundOldChunksCarvingMaskFilter(region, protoChunk);
+        }
+        context.generator().applyCarvers(
+                region,
+                level.getSeed(),
+                level.getChunkSource().randomState(),
+                level.getBiomeManager(),
+                level.structureManager().forWorldGenRegion(region),
+                chunk
+        );
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateFeatures(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateFeatures(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateFeatures(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ServerLevel level = context.level();
+        Heightmap.primeHeightmaps(
+                chunk,
+                EnumSet.of(
+                        Heightmap.Types.MOTION_BLOCKING,
+                        Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                        Heightmap.Types.OCEAN_FLOOR,
+                        Heightmap.Types.WORLD_SURFACE
+                )
+        );
+        WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+        if (!SharedConstants.DEBUG_DISABLE_FEATURES) {
+            context.generator().applyBiomeDecoration(region, chunk, level.structureManager().forWorldGenRegion(region));
+        }
+        Blender.generateBorderTicks(region, chunk);
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "initializeLight(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> initializeLight(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> initializeLight(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ThreadedLevelLightEngine lightEngine = context.lightEngine();
+        chunk.initializeLightSources();
+        ((ProtoChunk) chunk).setLightEngine(lightEngine);
+        return lightEngine.initializeLight(chunk, isLighted(chunk));
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "light(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> light(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> light(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        return context.lightEngine().lightChunk(chunk, isLighted(chunk));
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "generateSpawn(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> generateSpawn(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> generateSpawn(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        if (!chunk.isUpgrading()) {
+            context.generator().spawnOriginalMobs(new WorldGenRegion(context.level(), chunks, step, chunk));
+        }
+        return CompletableFuture.completedFuture(chunk);
+    }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "full(Lnet/minecraft/world/level/chunk/status/WorldGenContext;Lnet/minecraft/world/level/chunk/status/ChunkStep;"
-            + "Lnet/minecraft/util/StaticCache2D;Lnet/minecraft/world/level/chunk/ChunkAccess;)Ljava/util/concurrent/CompletableFuture;")
-    public static native CompletableFuture<ChunkAccess> full(
-            WorldGenContext worldGenContext, ChunkStep step, StaticCache2D<GenerationChunkHolder> cache, ChunkAccess chunk
-    );
+    public static CompletableFuture<ChunkAccess> full(
+            WorldGenContext context, ChunkStep step, StaticCache2D<GenerationChunkHolder> chunks, ChunkAccess chunk
+    ) {
+        ChunkPos pos = chunk.getPos();
+        GenerationChunkHolder holder = chunks.get(pos.x(), pos.z());
+        return CompletableFuture.supplyAsync(() -> {
+            ProtoChunk protoChunk = (ProtoChunk) chunk;
+            ServerLevel level = context.level();
+            LevelChunk levelChunk;
+            if (protoChunk instanceof ImposterProtoChunk imposter) {
+                levelChunk = imposter.getWrapped();
+            } else {
+                levelChunk = new LevelChunk(level, protoChunk, loadedChunk -> {
+                    try (ProblemReporter.ScopedCollector reporter = new ProblemReporter.ScopedCollector(chunk.problemPath(), LOGGER)) {
+                        postLoadProtoChunk(
+                                level,
+                                TagValueInput.create(reporter, level.registryAccess(), protoChunk.getEntities())
+                        );
+                    }
+                });
+                holder.replaceProtoChunk(new ImposterProtoChunk(levelChunk, false));
+            }
 
-    @AddTransformToSets(ChunkInCubicContextSet.ChunkStatusTasks_to_CCChunkStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "postLoadProtoChunk(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/ValueInput$ValueInputList;)V")
-    private static native void postLoadProtoChunk(ServerLevel level, ValueInput.ValueInputList entityTags);
+            levelChunk.setFullStatus(holder::getFullStatus);
+            levelChunk.runPostLoad();
+            levelChunk.setLoaded(true);
+            levelChunk.registerAllBlockEntitiesAfterLevelLoad();
+            levelChunk.registerTickContainerInLevel(level);
+            levelChunk.setUnsavedListener(context.unsavedListener());
+            return levelChunk;
+        }, context.mainThreadExecutor());
+    }
+
+    private static void postLoadProtoChunk(ServerLevel level, ValueInput.ValueInputList entityTags) {
+        if (!entityTags.isEmpty()) {
+            level.addWorldGenChunkEntities(EntityType.loadEntitiesRecursive(entityTags, level, EntitySpawnReason.LOAD));
+        }
+    }
 }
