@@ -64,6 +64,13 @@ def coreTest = tasks.register('coreTest', Test) {
     classpath = sourceSets.test.runtimeClasspath + files(coreTestsClassesDir)
     useJUnitPlatform()
     shouldRunAfter tasks.named('test')
+
+    // Int3HashSet intentionally uses Netty's off-heap allocator. Java 25 no
+    // longer permits Netty to acquire Unsafe reflectively without these opens.
+    systemProperty 'io.netty.tryReflectionSetAccessible', 'true'
+    jvmArgs '--add-opens=java.base/java.nio=ALL-UNNAMED',
+            '--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED'
+
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
