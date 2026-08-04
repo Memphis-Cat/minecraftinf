@@ -37,7 +37,12 @@ def unpackCoreTests = tasks.register('unpackCoreTests', Sync) {
     }
 }
 
+tasks.named('test') {
+    enabled = true
+}
+
 def coreTest = tasks.register('coreTest', Test) {
+    enabled = true
     group = 'verification'
     description = 'Runs CubicChunksCore tests against the linked Fabric/Minecraft classpath.'
     dependsOn unpackCoreTests, testClasses
