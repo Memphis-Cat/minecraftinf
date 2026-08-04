@@ -8,13 +8,11 @@ output_jar="$root_dir/build/fabric-header-libs/CubicChunksCore-linked.jar"
 tests_output_jar="$root_dir/build/fabric-header-libs/CubicChunksCore-tests-linked.jar"
 headers_config="$root_dir/javaHeaders.json"
 
-for required in "$input_jar" "$tests_input_jar"; do
-    if [[ ! -s "$required" ]]; then
-        echo "Missing CubicChunksCore jar: $required" >&2
-        echo "Build CubicChunksCore and testsJar before linking its Java headers." >&2
-        exit 1
-    fi
-done
+if [[ ! -s "$input_jar" ]]; then
+    echo "Missing CubicChunksCore jar: $input_jar" >&2
+    echo "Build CubicChunksCore before linking its Java headers." >&2
+    exit 1
+fi
 
 work_dir="$(mktemp -d)"
 gradle_home="$(mktemp -d)"
@@ -63,7 +61,9 @@ configurations {
 
 dependencies {
     linkedCore files(System.getenv('CC_CORE_INPUT'))
-    linkedCoreTests files(System.getenv('CC_CORE_TESTS_INPUT'))
+    if (System.getenv('CC_LINK_TESTS') == 'true') {
+        linkedCoreTests files(System.getenv('CC_CORE_TESTS_INPUT'))
+    }
 }
 
 def linkedOutput = file(System.getenv('CC_LINK_OUTPUT'))
@@ -88,6 +88,7 @@ tasks.register('linkCoreHeaders', Copy) {
 }
 
 tasks.register('linkCoreTestHeaders', Copy) {
+    onlyIf { System.getenv('CC_LINK_TESTS') == 'true' }
     from(configurations.linkedCoreTests)
     into(linkedTestsOutput.parentFile)
     rename { linkedTestsOutput.name }
@@ -113,8 +114,20 @@ export CC_TESTS_LINK_OUTPUT="$tests_output_jar"
 export CC_HEADERS_CONFIG="$headers_config"
 export GRADLE_USER_HOME="$gradle_home"
 
+link_tasks=(linkCoreHeaders)
+if [[ -s "$tests_input_jar" ]]; then
+    export CC_LINK_TESTS=true
+    link_tasks+=(linkCoreTestHeaders)
+else
+    export CC_LINK_TESTS=false
+    rm -f "$tests_output_jar"
+    echo "CubicChunksCore tests jar is absent; linking runtime headers only."
+fi
+
 chmod +x "$root_dir/gradlew"
-"$root_dir/gradlew" -p "$work_dir" linkCoreHeaders linkCoreTestHeaders --stacktrace --no-daemon
+"$root_dir/gradlew" -p "$work_dir" "${link_tasks[@]}" --stacktrace --no-daemon
 
 test -s "$output_jar"
-test -s "$tests_output_jar"
+if [[ "$CC_LINK_TESTS" == true ]]; then
+    test -s "$tests_output_jar"
+fi
