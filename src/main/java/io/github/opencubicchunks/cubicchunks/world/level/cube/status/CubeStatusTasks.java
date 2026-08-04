@@ -15,6 +15,8 @@ import io.github.opencubicchunks.cubicchunks.world.level.chunk.status.CCChunkSta
 import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkStatusTasks;
 import net.minecraft.world.level.chunk.status.WorldGenContext;
@@ -148,7 +150,9 @@ public final class CubeStatusTasks {
             WorldGenContext worldGenContext, CubeStep step, StaticCache3D<GenerationChunkHolder> cache, CubeAccess cube
     );
 
-    @AddTransformToSets(ChunkToCubeSet.ChunkStatusTasks_to_CubeStatusTasks_redirects.class)
-    @TransformFromMethod(owner = @Ref(ChunkStatusTasks.class), value = "postLoadProtoChunk(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/storage/ValueInput$ValueInputList;)V")
-    private static native void postLoadProtoCube(ServerLevel level, ValueInput.ValueInputList entityTags);
+    private static void postLoadProtoCube(ServerLevel level, ValueInput.ValueInputList entityTags) {
+        if (!entityTags.isEmpty()) {
+            level.addWorldGenChunkEntities(EntityType.loadEntitiesRecursive(entityTags, level, EntitySpawnReason.LOAD));
+        }
+    }
 }
