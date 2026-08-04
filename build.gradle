@@ -126,12 +126,16 @@ dependencies {
     include 'com.electronwill.night-config:core:3.9.0'
     include 'com.electronwill.night-config:toml:3.9.0'
 
+    // DASM's annotations alone are insufficient: Fabric needs the runtime
+    // Mixin extension to materialize transformed cc_* methods before injection.
+    implementation 'io.github.notstirred:dasm-fabric:3.2.0'
+    include 'io.github.notstirred:dasm-fabric:3.2.0'
+
     // Mojang ships 26.2 unobfuscated. This verified client jar contains both
     // common/server and client symbols and is used only to restore javac's game
     // classes while Loom's merged-deobf regression is isolated.
     compileOnly files(rawMinecraftClientJar)
 
-    compileOnly 'io.github.notstirred:dasm:3.2.0:api'
     compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
 
     libraries 'io.github.opencubicchunks:regionlib:0.63.0-SNAPSHOT'
