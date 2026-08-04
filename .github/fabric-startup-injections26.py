@@ -54,19 +54,28 @@ write(path, text)
 # therefore counted directly; the old Mth.square replacement must not remain.
 path = 'src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/MixinMinecraftServer.java'
 text = read(path)
-old_prepare = '''    @WrapOperation(method = "prepareLevels", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;square(I)I"))
-    private int cc_onPrepareLevels_computeTickingGeneratedCount(int value, Operation<Integer> original) {
-        if (!((CanBeCubic) overworld()).cc_isCubic()) {
-            return original.call(value);
-        }
-        int cubeRadius = Coords.sectionToCubeCeil(this.getGameRules().getInt(GameRules.RULE_SPAWN_CHUNK_RADIUS));
-        int cubeDiameter = cubeRadius * 2 + 1;
-        int chunkDiameter = cubeDiameter * CubicConstants.DIAMETER_IN_SECTIONS;
-        return cubeDiameter * cubeDiameter * cubeDiameter + chunkDiameter * chunkDiameter;
-    }
-
-'''
-text = text.replace(old_prepare, '')
+method_name = 'cc_onPrepareLevels_computeTickingGeneratedCount'
+name_index = text.find(method_name)
+if name_index >= 0:
+    method_start = text.rfind('    @WrapOperation', 0, name_index)
+    body_start = text.find('{', name_index)
+    if method_start < 0 or body_start < 0:
+        raise SystemExit('Unable to locate obsolete prepareLevels hook boundaries')
+    depth = 0
+    method_end = -1
+    for index in range(body_start, len(text)):
+        if text[index] == '{':
+            depth += 1
+        elif text[index] == '}':
+            depth -= 1
+            if depth == 0:
+                method_end = index + 1
+                break
+    if method_end < 0:
+        raise SystemExit('Unable to locate obsolete prepareLevels hook end')
+    while method_end < len(text) and text[method_end] == '\n':
+        method_end += 1
+    text = text[:method_start] + text[method_end:]
 text = text.replace('import io.github.opencubicchunks.cc_core.api.CubicConstants;\n', '')
 text = text.replace('import io.github.opencubicchunks.cc_core.utils.Coords;\n', '')
 text = text.replace('import net.minecraft.world.level.GameRules;\n', '')
