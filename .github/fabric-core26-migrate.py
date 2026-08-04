@@ -2,6 +2,7 @@
 """Port CubicChunksCore's Minecraft header bridge and tests to Minecraft 26.2."""
 
 from pathlib import Path
+import re
 
 root = Path("CubicChunksCore")
 header = root / "src/main/java/io/github/opencubicchunks/cc_core/minecraft/MCChunkPos.java"
@@ -31,15 +32,20 @@ public class MCChunkPos {
 )
 
 # Apply API substitutions throughout Core rather than relying on direct record
-# field access, which is private in Minecraft 26.2 bytecode.
+# field access, which is private in Minecraft 26.2 bytecode. These substitutions
+# deliberately match fields only when no accessor parentheses are already present.
 for path in (root / "src").rglob("*.java"):
     source = path.read_text(encoding="utf-8")
     source = source.replace("MCChunkPos.asLong(", "MCChunkPos.pack(")
     source = source.replace("MCChunkPos#toLong", "MCChunkPos#pack")
-    source = source.replace("columnPos.x", "columnPos.x()")
-    source = source.replace("columnPos.z", "columnPos.z()")
-    source = source.replace("position.x", "position.x()")
-    source = source.replace("position.z", "position.z()")
+    source = source.replace("columnPos.x()()", "columnPos.x()")
+    source = source.replace("columnPos.z()()", "columnPos.z()")
+    source = source.replace("position.x()()", "position.x()")
+    source = source.replace("position.z()()", "position.z()")
+    source = re.sub(r"\bcolumnPos\.x\b(?!\s*\()", "columnPos.x()", source)
+    source = re.sub(r"\bcolumnPos\.z\b(?!\s*\()", "columnPos.z()", source)
+    source = re.sub(r"\bposition\.x\b(?!\s*\()", "position.x()", source)
+    source = re.sub(r"\bposition\.z\b(?!\s*\()", "position.z()", source)
     source = source.replace("new MCChunkPos(chunkLong)", "MCChunkPos.unpack(chunkLong)")
     source = source.replace("import static org.hamcrest.junit.MatcherAssert.assertThat;", "import static org.hamcrest.MatcherAssert.assertThat;")
     path.write_text(source, encoding="utf-8")
@@ -82,6 +88,8 @@ for path in (root / "src").rglob("*.java"):
         "position.z)",
         "new MCChunkPos(chunkLong)",
         "org.hamcrest.junit.MatcherAssert",
+        "x()()",
+        "z()()",
     )
     if any(marker in source for marker in forbidden):
         remaining.append(str(path))
