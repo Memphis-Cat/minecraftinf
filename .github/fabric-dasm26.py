@@ -99,15 +99,15 @@ imports = (
     "import io.github.opencubicchunks.cubicchunks.world.level.cube.ProtoCube;\n"
 )
 if "import io.github.opencubicchunks.cubicchunks.server.level.GenerationCloHolder;\n" not in text:
-    anchor = "import io.github.opencubicchunks.cubicchunks.server.level.CubeWorldGenRegion;\n"
+    anchor = "import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCubeSet;\n"
     if anchor not in text:
         raise SystemExit("Unable to locate CubeStatusTasks cubic import block")
     text = text.replace(anchor, anchor + imports, 1)
 for import_line, anchor in (
-    ("import net.minecraft.util.ProblemReporter;\n", "import net.minecraft.server.level.WorldGenRegion;\n"),
+    ("import net.minecraft.util.ProblemReporter;\n", "import net.minecraft.server.level.ServerLevel;\n"),
     ("import net.minecraft.world.entity.EntitySpawnReason;\n", "import net.minecraft.util.ProblemReporter;\n"),
     ("import net.minecraft.world.entity.EntityType;\n", "import net.minecraft.world.entity.EntitySpawnReason;\n"),
-    ("import net.minecraft.world.level.storage.TagValueInput;\n", "import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;\n"),
+    ("import net.minecraft.world.level.storage.TagValueInput;\n", "import net.minecraft.world.level.chunk.status.WorldGenContext;\n"),
 ):
     if import_line not in text:
         if anchor not in text:
