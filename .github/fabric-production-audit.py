@@ -16,6 +16,8 @@ LIGHT_DATA = ROOT / "io/github/opencubicchunks/cubicchunks/network/CCClientbound
 CLIENT_HANDLER = ROOT / "io/github/opencubicchunks/cubicchunks/network/CCClientNetworkHandler.java"
 SENDER = ROOT / "io/github/opencubicchunks/cubicchunks/mixin/core/common/server/network/MixinPlayerChunkSender.java"
 NETWORK_TEST = TEST_ROOT / "io/github/opencubicchunks/cubicchunks/network/TestCubeNetworkPayloads.java"
+CUBE_STORAGE = ROOT / "io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java"
+CHUNK_MAP = ROOT / "io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java"
 
 FORBIDDEN_STORAGE = (
     "return false; // TODO (P2) should be dasm'd once IOWorker is done",
@@ -70,6 +72,30 @@ NETWORK_REQUIREMENTS = {
     ),
 }
 
+PERSISTENCE_REQUIREMENTS = {
+    CUBE_STORAGE: (
+        "VERSION_STATUS = 3",
+        "void save(CloAccess cube)",
+        "Optional<CloAccess> load",
+        "ProtoChunkTicks.load(blockTicks)",
+        "Loaded persisted proto cube",
+        "StructurePieceSerializationContext structureContext",
+    ),
+    CHUNK_MAP: (
+        "cc_cubeStorage.save(cloAccess)",
+        "Optional<CloAccess> storedCube",
+        "cc_queueTicketlessClosForShutdown",
+        "Long2ObjectLinkedOpenHashMap<ChunkHolder> updatingChunkMap",
+        "LongSet toDrop",
+    ),
+}
+
+PERSISTENCE_FORBIDDEN = (
+    "cc_asLevelCube",
+    "Optional<ImposterProtoCube> storedCube",
+    "void save(LevelCube cube)",
+)
+
 NETWORK_FORBIDDEN = (
     "TODO name is a lie",
     "TODO block entities",
@@ -113,6 +139,14 @@ def main() -> int:
     for path, markers in RUNTIME_REQUIREMENTS.items():
         require_markers(failures, path, markers, "runtime")
 
+    for path, markers in PERSISTENCE_REQUIREMENTS.items():
+        require_markers(failures, path, markers, "persistence")
+        if path.is_file():
+            source = path.read_text(encoding="utf-8")
+            for marker in PERSISTENCE_FORBIDDEN:
+                if marker in source:
+                    failures.append(f"unfinished or LevelCube-only persistence in {path}: {marker}")
+
     for path, markers in NETWORK_REQUIREMENTS.items():
         require_markers(failures, path, markers, "network")
         if path.is_file():
@@ -133,7 +167,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print("Fabric 26.2 production audit passed: storage, vanilla fallbacks, cube networking, light data and block-entity payloads are implemented and tested.")
+    print("Fabric 26.2 production audit passed: storage, ProtoCube persistence, shutdown draining, vanilla fallbacks, cube networking, light data and block-entity payloads are implemented and tested.")
     return 0
 
 
