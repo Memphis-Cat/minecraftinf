@@ -6,6 +6,7 @@ import runpy
 
 # Port Core before its jar and test archive are built.
 runpy.run_path(".github/fabric-core26-migrate.py", run_name="__fabric_core26_migrate__")
+runpy.run_path(".github/fabric-core-cubepos26.py", run_name="__fabric_core_cubepos26__")
 
 path = Path("build.gradle")
 text = path.read_text(encoding="utf-8")
