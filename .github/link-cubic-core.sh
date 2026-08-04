@@ -127,6 +127,27 @@ fi
 chmod +x "$root_dir/gradlew"
 "$root_dir/gradlew" -p "$work_dir" "${link_tasks[@]}" --stacktrace --no-daemon
 
+# javaheaders transforms the Minecraft-facing Core classes but omits Core's
+# package-level nullability annotations. The parent source imports those
+# annotations from Core in every package-info.java, so restore that package from
+# the original, already-compiled Core jar after the header transform.
+annotation_restore_dir="$work_dir/core-annotations"
+mkdir -p "$annotation_restore_dir"
+(
+    cd "$annotation_restore_dir"
+    jar xf "$input_jar" io/github/opencubicchunks/cc_core/annotation
+)
+if [[ ! -d "$annotation_restore_dir/io/github/opencubicchunks/cc_core/annotation" ]]; then
+    echo "CubicChunksCore annotation package is missing from $input_jar" >&2
+    exit 1
+fi
+jar uf "$output_jar" -C "$annotation_restore_dir" io/github/opencubicchunks/cc_core/annotation
+if ! jar tf "$output_jar" | grep -qx 'io/github/opencubicchunks/cc_core/annotation/MethodsReturnNonnullByDefault.class'; then
+    echo "Failed to restore MethodsReturnNonnullByDefault into $output_jar" >&2
+    exit 1
+fi
+echo "Restored CubicChunksCore nullability annotations into linked headers."
+
 test -s "$output_jar"
 if [[ "$CC_LINK_TESTS" == true ]]; then
     test -s "$tests_output_jar"
