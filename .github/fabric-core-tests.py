@@ -102,6 +102,7 @@ runpy.run_path(".github/fabric-test26-migrate.py", run_name="__fabric_test26_mig
 runpy.run_path(".github/fabric-test26-finalize.py", run_name="__fabric_test26_finalize__")
 runpy.run_path(".github/fabric-test-runtime26.py", run_name="__fabric_test_runtime26__")
 runpy.run_path(".github/fabric-packaging26.py", run_name="__fabric_packaging26__")
+runpy.run_path(".github/fabric-run-classpath26.py", run_name="__fabric_run_classpath26__")
 storage_source = Path("src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java")
 if "void save(CloAccess cube)" not in storage_source.read_text(encoding="utf-8"):
     runpy.run_path(".github/fabric-persistence26-migrate.py", run_name="__fabric_persistence26_migrate__")
