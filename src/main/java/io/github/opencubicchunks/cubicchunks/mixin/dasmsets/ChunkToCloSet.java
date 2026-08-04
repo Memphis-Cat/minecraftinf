@@ -69,6 +69,9 @@ public interface ChunkToCloSet extends GlobalSet {
         @FieldToMethodRedirect("z:I")
         native int getZ();
 
+        @MethodRedirect("toLong()J")
+        native long toLong();
+
         @ConstructorToFactoryRedirect("<init>(J)V")
         static native CloPos fromLong(long cloPos);
 
