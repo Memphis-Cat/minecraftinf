@@ -25,7 +25,15 @@ text = text.replace(
     "new DifficultyInstance(this.getDifficulty(), this.getOverworldClockTime(), inhabitedTime, moonBrightness)",
     "new DifficultyInstance(this.getDifficulty(), ((ServerLevel) (Object) this).getOverworldClockTime(), inhabitedTime, moonBrightness)",
 )
-text = text.replace("import net.minecraft.util.RandomSource;\n", "")
+
+# Keep the now-unused RandomSource import. The legacy finalizer still checks that
+# import before trying to insert the old shadow block, and retaining it makes the
+# deliberately repeated migration pass stable without affecting compiled code.
+if "import net.minecraft.util.RandomSource;\n" not in text:
+    anchor = "import net.minecraft.util.profiling.Profiler;\n"
+    if anchor not in text:
+        raise SystemExit("Unable to retain the RandomSource finalizer sentinel")
+    text = text.replace(anchor, "import net.minecraft.util.RandomSource;\n" + anchor, 1)
 
 if "@Shadow @Final protected RandomSource random" in text:
     raise SystemExit("Obsolete ServerLevel-owned random shadow remains")
