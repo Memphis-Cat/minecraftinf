@@ -36,6 +36,12 @@ service.write_text(
 
 build = Path("build.gradle")
 text = build.read_text(encoding="utf-8")
+launcher_compile = "    testImplementation 'org.junit.platform:junit-platform-launcher'\n"
+if launcher_compile not in text:
+    anchor = "    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'\n"
+    if anchor not in text:
+        raise SystemExit("Unable to locate the JUnit Platform launcher dependency")
+    text = text.replace(anchor, launcher_compile + anchor, 1)
 
 suite = r'''
 // The legacy NeoForge test task depended on Forge's transformed test runtime.
