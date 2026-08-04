@@ -43,6 +43,13 @@ if launcher_compile not in text:
         raise SystemExit("Unable to locate the JUnit Platform launcher dependency")
     text = text.replace(anchor, launcher_compile + anchor, 1)
 
+text = text.replace(
+    'def coreTestsJar = file("${rootDir}/CubicChunksCore/build/libs/CubicChunksCore-tests.jar")',
+    'def coreTestsJar = file("${buildDir}/fabric-header-libs/CubicChunksCore-tests-linked.jar")',
+)
+if 'CubicChunksCore-tests-linked.jar' not in text:
+    raise SystemExit("Unable to switch Core tests to the JavaHeaders-linked archive")
+
 suite = r'''
 // The legacy NeoForge test task depended on Forge's transformed test runtime.
 // Fabric's plain JVM test task runs only tests that exercise untransformed
@@ -72,4 +79,4 @@ if "includeTestsMatching 'io.github.opencubicchunks.cubicchunks.network.TestCube
     text = text.replace(marker, suite + marker, 1)
 
 build.write_text(text, encoding="utf-8")
-print("Configured Minecraft bootstrap and the Fabric-compatible 26.2 unit suite")
+print("Configured Minecraft bootstrap, linked Core tests and the Fabric-compatible 26.2 unit suite")
