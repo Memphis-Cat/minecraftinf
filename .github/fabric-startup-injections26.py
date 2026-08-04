@@ -85,7 +85,9 @@ if 'cc_onPrepareLevels_computeTickingGeneratedCount' in text:
     raise SystemExit('Obsolete prepareLevels static-count hook remains')
 write(path, text)
 
-# Replace the fragile injection into a DASM-generated method with a concrete mixin helper.
+# Register the cubic range helper as the redirect destination while keeping its
+# concrete Java body. TransformFromMethod would clone vanilla's record accessors
+# and produce CloPos.x()/z(), which are not part of CubicChunksCore's ABI.
 path = 'src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java'
 text = read(path)
 text = text.replace('import org.spongepowered.asm.mixin.Overwrite;\n', '')
@@ -103,8 +105,8 @@ if start < 0 or end < 0:
     raise SystemExit('Unable to locate cc_getChunkRangeFuture region')
 end += len('    // endregion')
 body = '''    // region [cc_getChunkRangeFuture dasm + mixin]
-    @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
-    @TransformFromMethod("getChunkRangeFuture(Lnet/minecraft/server/level/ChunkHolder;ILjava/util/function/IntFunction;)Ljava/util/concurrent/CompletableFuture;")
+    @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class,
+            method = "getChunkRangeFuture(Lnet/minecraft/server/level/ChunkHolder;ILjava/util/function/IntFunction;)Ljava/util/concurrent/CompletableFuture;")
     private CompletableFuture<ChunkResult<List<CloAccess>>> cc_getChunkRangeFuture(
             ChunkHolder cloHolder, int radius, IntFunction<ChunkStatus> statusByRadius
     ) {
