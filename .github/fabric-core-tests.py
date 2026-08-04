@@ -74,5 +74,7 @@ path.write_text(text, encoding="utf-8")
 runpy.run_path(".github/fabric-runtime-fixes.py", run_name="__fabric_runtime_fixes__")
 runpy.run_path(".github/fabric-test26-migrate.py", run_name="__fabric_test26_migrate__")
 runpy.run_path(".github/fabric-test26-finalize.py", run_name="__fabric_test26_finalize__")
-runpy.run_path(".github/fabric-persistence26-migrate.py", run_name="__fabric_persistence26_migrate__")
+storage_source = Path("src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java")
+if "void save(CloAccess cube)" not in storage_source.read_text(encoding="utf-8"):
+    runpy.run_path(".github/fabric-persistence26-migrate.py", run_name="__fabric_persistence26_migrate__")
 print("Configured CubicChunksCore, Fabric 26.2 tests and complete cube persistence for the parent runtime")
