@@ -6,12 +6,15 @@ from pathlib import Path
 path = Path("src/main/java/io/github/opencubicchunks/cubicchunks/mixin/core/common/server/level/MixinChunkMap.java")
 text = path.read_text(encoding="utf-8")
 
-shadow = '''    @Shadow private abstract CompletableFuture<ChunkAccess> scheduleChunkLoad(ChunkPos pos);\n\n'''
-if shadow not in text:
+invalid_shadow = '''    @Shadow private abstract CompletableFuture<ChunkAccess> scheduleChunkLoad(ChunkPos pos);\n\n'''
+valid_shadow = '''    @Shadow private CompletableFuture<ChunkAccess> scheduleChunkLoad(ChunkPos pos) {\n        throw new AssertionError();\n    }\n\n'''
+if invalid_shadow in text:
+    text = text.replace(invalid_shadow, valid_shadow, 1)
+elif valid_shadow not in text:
     anchor = '''    @Shadow abstract CompletableFuture<ChunkResult<List<ChunkAccess>>> getChunkRangeFuture(\n            ChunkHolder centerChunk, int range, IntFunction<ChunkStatus> distanceToStatus\n    );\n\n'''
     if anchor not in text:
         raise SystemExit("Unable to locate ChunkMap scheduleChunkLoad shadow insertion point")
-    text = text.replace(anchor, anchor + shadow, 1)
+    text = text.replace(anchor, anchor + valid_shadow, 1)
 
 start = text.find("    // region [cc_scheduleChunkLoad dasm + mixin]")
 end = text.find("    // endregion", start)
@@ -58,6 +61,7 @@ for obsolete in (
     '@Dynamic @Inject(method = "cc_scheduleChunkLoad',
     '@Dynamic @Redirect(method = "cc_scheduleChunkLoad',
     "private native CompletableFuture<CloAccess> cc_scheduleChunkLoad(CloPos",
+    "@Shadow private abstract CompletableFuture<ChunkAccess> scheduleChunkLoad",
 ):
     if obsolete in text:
         raise SystemExit(f"Obsolete cc_scheduleChunkLoad implementation remains: {obsolete}")
