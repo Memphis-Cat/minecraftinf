@@ -7,6 +7,7 @@ scripts = (
     (".github/fabric-packaging26.py", "__fabric_packaging26__"),
     (".github/fabric-run-classpath26.py", "__fabric_run_classpath26__"),
     (".github/fabric-level26-runtime.py", "__fabric_level26_runtime__"),
+    (".github/fabric-levelcube26-runtime.py", "__fabric_levelcube26_runtime__"),
     (".github/fabric-serverlevel26-runtime.py", "__fabric_serverlevel26_runtime__"),
     (".github/fabric-serverlevel-spawn26.py", "__fabric_serverlevel_spawn26__"),
     (".github/fabric-chunkholder26-runtime.py", "__fabric_chunkholder26_runtime__"),
