@@ -6,14 +6,16 @@ from pathlib import Path
 path = Path("src/main/java/io/github/opencubicchunks/cubicchunks/world/level/cube/LevelCube.java")
 text = path.read_text(encoding="utf-8")
 
-text = text.replace(
-    "import net.minecraft.world.level.block.Block;\n",
-    "import net.minecraft.world.level.block.Block;\nimport net.minecraft.world.level.block.Blocks;\n",
-)
-text = text.replace(
-    "import net.minecraft.world.level.material.FluidState;\n",
-    "import net.minecraft.world.level.material.FluidState;\nimport net.minecraft.world.level.material.Fluids;\n",
-)
+if "import net.minecraft.world.level.block.Blocks;\n" not in text:
+    anchor = "import net.minecraft.world.level.block.Block;\n"
+    if anchor not in text:
+        raise SystemExit("Unable to add the Blocks import to LevelCube")
+    text = text.replace(anchor, anchor + "import net.minecraft.world.level.block.Blocks;\n", 1)
+if "import net.minecraft.world.level.material.Fluids;\n" not in text:
+    anchor = "import net.minecraft.world.level.material.FluidState;\n"
+    if anchor not in text:
+        raise SystemExit("Unable to add the Fluids import to LevelCube")
+    text = text.replace(anchor, anchor + "import net.minecraft.world.level.material.Fluids;\n", 1)
 
 old = '''    // dasm + mixin
     @TransformFromMethod(value = "getBlockState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/block/state/BlockState;", owner = @Ref(LevelChunk.class))
@@ -63,6 +65,10 @@ for marker in (
 ):
     if marker in text:
         raise SystemExit(f"Obsolete transformed LevelCube reader remains: {marker}")
+if text.count("import net.minecraft.world.level.block.Blocks;") != 1:
+    raise SystemExit("Expected exactly one Blocks import")
+if text.count("import net.minecraft.world.level.material.Fluids;") != 1:
+    raise SystemExit("Expected exactly one Fluids import")
 
 path.write_text(text, encoding="utf-8")
 
