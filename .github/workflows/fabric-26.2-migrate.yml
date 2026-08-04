@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew test coreTest --stacktrace --no-daemon 2>&1 | tee fabric-migration-test.log
-          python - <<'PY'
+          python - <<'PY' | tee fabric-migration-test-summary.txt
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
@@ -170,12 +170,27 @@ jobs:
           test -d "run/$world"
           find "run/$world" -type f -print | sort > fabric-migration-world-first.txt
           test -s fabric-migration-world-first.txt
+          find "run/$world" -type f -name '*.ccube' -print | sort > fabric-migration-cubes-first.txt
+          test -s fabric-migration-cubes-first.txt
+          while IFS= read -r cube_file; do
+            test -s "$cube_file"
+          done < fabric-migration-cubes-first.txt
           cp fabric-migration-world-first.txt fabric-migration-world-before-restart.txt
+          cp fabric-migration-cubes-first.txt fabric-migration-cubes-before-restart.txt
+
           run_server fabric-migration-server-second.log
           find "run/$world" -type f -print | sort > fabric-migration-world-second.txt
           test -s fabric-migration-world-second.txt
+          find "run/$world" -type f -name '*.ccube' -print | sort > fabric-migration-cubes-second.txt
+          test -s fabric-migration-cubes-second.txt
+          while IFS= read -r cube_file; do
+            test -s "$cube_file"
+          done < fabric-migration-cubes-second.txt
           comm -23 fabric-migration-world-before-restart.txt fabric-migration-world-second.txt > fabric-migration-world-missing.txt
           test ! -s fabric-migration-world-missing.txt
+          comm -23 fabric-migration-cubes-before-restart.txt fabric-migration-cubes-second.txt > fabric-migration-cubes-missing.txt
+          test ! -s fabric-migration-cubes-missing.txt
+          grep -Eq 'Loaded persisted cube|Loaded persisted proto cube' fabric-migration-server-second.log
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-first.log
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-migration-server-second.log
 
@@ -197,7 +212,7 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build.gradle src/main/java src/main/resources .github/widen-minecraft-headers.py
+          git add build.gradle buildSrc src/main/java src/main/resources src/test/java .github/widen-minecraft-headers.py
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'Validated tree already contains the Minecraft 26.2 migration.'
@@ -238,12 +253,16 @@ jobs:
               'fabric-migration-classpath.log',
               'fabric-migration-compile.log',
               'fabric-migration-test.log',
+              'fabric-migration-test-summary.txt',
               'fabric-migration-build.log',
               'fabric-migration-server-first.log',
               'fabric-migration-server-second.log',
-              'fabric-migration-world-missing.txt'
+              'fabric-migration-world-missing.txt',
+              'fabric-migration-cubes-first.txt',
+              'fabric-migration-cubes-second.txt',
+              'fabric-migration-cubes-missing.txt'
             ];
-            let body = `${marker}\n## Fabric 26.2 branch gate: **${process.env.GATE_STATUS}**\n\n`;
+            let body = `${marker}\n## Fabric 26.2 branch gate: **${process.env.GATE_STATUS}**\n\nRun ID: \`${context.runId}\`  \nHead: \`${context.sha}\`\n\n`;
             for (const file of files) {
               if (!fs.existsSync(file)) continue;
               const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
