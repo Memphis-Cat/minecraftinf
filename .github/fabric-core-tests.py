@@ -4,6 +4,9 @@
 from pathlib import Path
 import runpy
 
+# Port Core before its jar and test archive are built.
+runpy.run_path(".github/fabric-core26-migrate.py", run_name="__fabric_core26_migrate__")
+
 path = Path("build.gradle")
 text = path.read_text(encoding="utf-8")
 
@@ -16,8 +19,7 @@ if hamcrest not in text:
 
 # Loom's merged 26.2 artifact is resources-only in this project. Production
 # compilation already uses the widened Mojang distribution; tests must use the
-# same classes at runtime or JUnit cannot load Level, DistanceManager and the
-# rest of Minecraft's public classes.
+# same classes at runtime or JUnit cannot load Minecraft's public classes.
 test_minecraft_runtime = "    testRuntimeOnly files(widenedMinecraftClientJar)\n"
 if test_minecraft_runtime not in text:
     anchor = "    compileOnly files(widenedMinecraftClientJar)\n"
@@ -91,7 +93,8 @@ path.write_text(text, encoding="utf-8")
 runpy.run_path(".github/fabric-runtime-fixes.py", run_name="__fabric_runtime_fixes__")
 runpy.run_path(".github/fabric-test26-migrate.py", run_name="__fabric_test26_migrate__")
 runpy.run_path(".github/fabric-test26-finalize.py", run_name="__fabric_test26_finalize__")
+runpy.run_path(".github/fabric-test-runtime26.py", run_name="__fabric_test_runtime26__")
 storage_source = Path("src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java")
 if "void save(CloAccess cube)" not in storage_source.read_text(encoding="utf-8"):
     runpy.run_path(".github/fabric-persistence26-migrate.py", run_name="__fabric_persistence26_migrate__")
-print("Configured CubicChunksCore, Fabric 26.2 tests and complete cube persistence for the parent runtime")
+print("Configured migrated Core, Fabric-compatible 26.2 tests and complete cube persistence")
