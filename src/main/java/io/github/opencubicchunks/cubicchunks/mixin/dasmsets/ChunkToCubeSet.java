@@ -76,6 +76,9 @@ public interface ChunkToCubeSet extends GlobalSet {
         @MethodRedirect("toLong()J")
         native long asLong();
 
+        @MethodRedirect("unpack(J)Lnet/minecraft/world/level/ChunkPos;")
+        static native CubePos from(long packed);
+
         @ConstructorToFactoryRedirect("<init>(II)V")
         static native CubePos dummy_fromChunkCoords(int x, int z);
 
