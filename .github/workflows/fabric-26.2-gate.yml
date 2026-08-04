@@ -55,28 +55,18 @@ jobs:
           python .github/fabric-gradle9-migrate.py
           python .github/fabric-api26-source-migrate.py
           python .github/fabric-api26-finalize.py
+          python .github/fabric-core-tests.py
           python .github/fabric-api26-finalize.py
+          python .github/fabric-core-tests.py
           chmod +x gradlew .github/link-cubic-core.sh
 
-      - name: Set up Java 17 for CubicChunksCore
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Build and test CubicChunksCore
+      - name: Build CubicChunksCore and its test archive
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x CubicChunksCore/gradlew
-          ./CubicChunksCore/gradlew -p CubicChunksCore clean test assemble --stacktrace --no-daemon 2>&1 | tee fabric-core.log
+          ./gradlew :CubicChunksCore:clean :CubicChunksCore:assemble :CubicChunksCore:testsJar --stacktrace --no-daemon 2>&1 | tee fabric-core.log
           test -s CubicChunksCore/build/libs/CubicChunksCore.jar
-
-      - name: Restore Java 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
+          test -s CubicChunksCore/build/libs/CubicChunksCore-tests.jar
 
       - name: Link core and prepare Minecraft headers
         shell: bash
@@ -85,6 +75,7 @@ jobs:
           .github/link-cubic-core.sh 2>&1 | tee fabric-link.log
           ./gradlew --refresh-dependencies printMainCompileClasspath --stacktrace --no-daemon 2>&1 | tee fabric-classpath.log
           test -s build/fabric-header-libs/CubicChunksCore-linked.jar
+          test -s build/fabric-header-libs/CubicChunksCore-tests-linked.jar
           test -s build/fabric-header-libs/minecraft-client-access-widened.jar
 
       - name: Compile runtime and tests
@@ -93,17 +84,38 @@ jobs:
           set -euo pipefail
           ./gradlew compileJava compileTestJava --stacktrace --no-daemon 2>&1 | tee fabric-compile.log
 
-      - name: Run Fabric port tests
+      - name: Run Fabric and CubicChunksCore tests
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew test --stacktrace --no-daemon 2>&1 | tee fabric-test.log
+          ./gradlew test coreTest --stacktrace --no-daemon 2>&1 | tee fabric-test.log
+          python - <<'PY' | tee fabric-test-summary.txt
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          for task in ('test', 'coreTest'):
+              files = sorted((Path('build/test-results') / task).glob('TEST-*.xml'))
+              if not files:
+                  raise SystemExit(f'{task} produced no JUnit XML results')
+              tests = failures = errors = skipped = 0
+              for file in files:
+                  root = ET.parse(file).getroot()
+                  tests += int(root.attrib.get('tests', 0))
+                  failures += int(root.attrib.get('failures', 0))
+                  errors += int(root.attrib.get('errors', 0))
+                  skipped += int(root.attrib.get('skipped', 0))
+              print(f'{task}: tests={tests} failures={failures} errors={errors} skipped={skipped}')
+              if tests <= 0:
+                  raise SystemExit(f'{task} executed zero tests')
+              if failures or errors:
+                  raise SystemExit(f'{task} contains failures or errors')
+          PY
 
       - name: Build distributable Fabric jar
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew build -x test --stacktrace --no-daemon 2>&1 | tee fabric-build.log
+          ./gradlew assemble --stacktrace --no-daemon 2>&1 | tee fabric-build.log
           jar_path="$(find build/libs -maxdepth 1 -type f -name 'cubicchunks-*.jar' ! -name '*-sources.jar' -print -quit)"
           test -s "$jar_path"
           jar tf "$jar_path" | sort > fabric-jar.txt
@@ -170,14 +182,35 @@ jobs:
           test -d "run/$world"
           find "run/$world" -type f -print | sort > fabric-world-first.txt
           test -s fabric-world-first.txt
+          find "run/$world" -type f -name '*.ccube' -print | sort > fabric-cubes-first.txt
+          test -s fabric-cubes-first.txt
+          while IFS= read -r cube_file; do
+            test -s "$cube_file"
+          done < fabric-cubes-first.txt
           cp fabric-world-first.txt fabric-world-before-restart.txt
+          cp fabric-cubes-first.txt fabric-cubes-before-restart.txt
+
           run_server fabric-server-second.log
           find "run/$world" -type f -print | sort > fabric-world-second.txt
           test -s fabric-world-second.txt
+          find "run/$world" -type f -name '*.ccube' -print | sort > fabric-cubes-second.txt
+          test -s fabric-cubes-second.txt
+          while IFS= read -r cube_file; do
+            test -s "$cube_file"
+          done < fabric-cubes-second.txt
           comm -23 fabric-world-before-restart.txt fabric-world-second.txt > fabric-world-missing-after-restart.txt
           test ! -s fabric-world-missing-after-restart.txt
+          comm -23 fabric-cubes-before-restart.txt fabric-cubes-second.txt > fabric-cubes-missing-after-restart.txt
+          test ! -s fabric-cubes-missing-after-restart.txt
+          grep -Eq 'Loaded persisted cube|Loaded persisted proto cube' fabric-server-second.log
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-server-first.log
           ! grep -Eqi 'crash report|failed to load|exception.*cubic|mixin apply failed|could not execute entrypoint' fabric-server-second.log
+
+      - name: Reject unfinished production stubs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/fabric-production-audit.py
 
       - name: Commit fully validated migrated runtime
         shell: bash
@@ -191,7 +224,7 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build.gradle src/main/java src/main/resources .github/widen-minecraft-headers.py
+          git add build.gradle buildSrc src/main/java src/main/resources src/test/java .github/widen-minecraft-headers.py
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'The branch already contains the validated Minecraft 26.2 migration.'
@@ -232,18 +265,22 @@ jobs:
               'fabric-classpath.log',
               'fabric-compile.log',
               'fabric-test.log',
+              'fabric-test-summary.txt',
               'fabric-build.log',
               'fabric-server-first.log',
               'fabric-server-second.log',
-              'fabric-world-missing-after-restart.txt'
+              'fabric-world-missing-after-restart.txt',
+              'fabric-cubes-first.txt',
+              'fabric-cubes-second.txt',
+              'fabric-cubes-missing-after-restart.txt'
             ];
             let body = `${marker}\n## Fabric 26.2 completion gate: **${process.env.GATE_STATUS}**\n\n`;
             for (const file of files) {
               if (!fs.existsSync(file)) continue;
               const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-              const tail = lines.slice(-160).join('\n');
+              const tail = lines.slice(-220).join('\n');
               if (!tail.trim()) continue;
-              body += `<details><summary>${file} (last ${Math.min(lines.length, 160)} lines)</summary>\n\n\`\`\`text\n${tail}\n\`\`\`\n</details>\n\n`;
+              body += `<details><summary>${file} (last ${Math.min(lines.length, 220)} lines)</summary>\n\n\`\`\`text\n${tail}\n\`\`\`\n</details>\n\n`;
             }
             if (body.length > 60000) body = body.slice(0, 60000) + '\n\n[truncated]';
             const issue_number = context.payload.pull_request?.number || 2;
