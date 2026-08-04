@@ -113,6 +113,10 @@ def migrate_distance_manager(text):
                     }
                 };"""
     new = """                new BlockableEventLoop<Runnable>(\"test_event_loop\", false) {
+                    @Override public Runnable wrapRunnable(Runnable runnable) {
+                        return runnable;
+                    }
+
                     @Override protected boolean shouldRun(Runnable runnable) {
                         return true;
                     }
@@ -123,6 +127,20 @@ def migrate_distance_manager(text):
                 };"""
     if old in text:
         text = text.replace(old, new, 1)
+    elif "new BlockableEventLoop<Runnable>(\"test_event_loop\", false)" in text and "@Override public Runnable wrapRunnable" not in text:
+        anchor = """                new BlockableEventLoop<Runnable>(\"test_event_loop\", false) {
+                    @Override protected boolean shouldRun(Runnable runnable) {
+"""
+        replacement = """                new BlockableEventLoop<Runnable>(\"test_event_loop\", false) {
+                    @Override public Runnable wrapRunnable(Runnable runnable) {
+                        return runnable;
+                    }
+
+                    @Override protected boolean shouldRun(Runnable runnable) {
+"""
+        if anchor not in text:
+            raise SystemExit("Unable to add TaskScheduler.wrapRunnable to the distance-manager fixture")
+        text = text.replace(anchor, replacement, 1)
     return text
 
 
@@ -158,6 +176,7 @@ def migrate_level_fixture(text):
         "import net.minecraft.util.random.WeightedList;\n",
         "import net.minecraft.world.clock.ClockManager;\n",
         "import net.minecraft.world.entity.boss.enderdragon.EnderDragonPart;\n",
+        "import net.minecraft.world.level.border.WorldBorder;\n",
         "import net.minecraft.world.level.storage.LevelData;\n",
     )
     for import_line in imports:
@@ -188,15 +207,50 @@ def migrate_level_fixture(text):
             return mock(ClockManager.class);
         }
 
+        @Override public WorldBorder getWorldBorder() {
+            return mock(WorldBorder.class);
+        }
+
 """
     if "@Override public ClockManager clockManager()" not in text:
         anchor = "        @Override public String gatherChunkSourceStats() {\n"
         if anchor not in text:
             raise SystemExit("Unable to complete the Minecraft 26.2 Level test fixture")
         text = text.replace(anchor, methods + anchor, 1)
+    elif "@Override public WorldBorder getWorldBorder()" not in text:
+        anchor = """        @Override public ClockManager clockManager() {
+            return mock(ClockManager.class);
+        }
+
+"""
+        replacement = anchor + """        @Override public WorldBorder getWorldBorder() {
+            return mock(WorldBorder.class);
+        }
+
+"""
+        if anchor not in text:
+            raise SystemExit("Unable to add WorldBorder to the Minecraft 26.2 Level fixture")
+        text = text.replace(anchor, replacement, 1)
     return text
 
 
 update("src/test/java/io/github/opencubicchunks/cubicchunks/test/world/level/TestCubicLevel.java", migrate_level_fixture)
+
+
+def migrate_documentation_only_test(text):
+    text = text.replace("import io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestCubicChunkMap;\n", "")
+    text = text.replace("import io.github.opencubicchunks.cubicchunks.integrationtest.server.level.IntegrationTestServerCubeCache;\n", "")
+    text = text.replace(" * @see IntegrationTestCubicChunkMap integration tests\n", " * Integration coverage is provided by the Fabric dedicated-server completion gate.\n")
+    text = text.replace(" * @see IntegrationTestServerCubeCache integration tests\n", " * Integration coverage is provided by the Fabric dedicated-server completion gate.\n")
+    return text
+
+
+for path in (
+    "src/test/java/io/github/opencubicchunks/cubicchunks/test/server/level/TestCubicChunkMap.java",
+    "src/test/java/io/github/opencubicchunks/cubicchunks/test/server/level/TestCloGenerationTask.java",
+    "src/test/java/io/github/opencubicchunks/cubicchunks/test/server/level/TestCloHolder.java",
+    "src/test/java/io/github/opencubicchunks/cubicchunks/test/server/level/TestServerCubeCache.java",
+):
+    update(path, migrate_documentation_only_test)
 
 print("Applied final Fabric 26.2 test compatibility pass")
