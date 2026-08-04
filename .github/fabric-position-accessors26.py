@@ -15,17 +15,18 @@ for path in paths:
         old = f'''        @FieldToMethodRedirect("{axis}:I")
         native int {getter}();
 '''
-        new = f'''        @FieldToMethodRedirect("{axis}:I")
-        @MethodRedirect("{axis}()I")
+        new = f'''        @MethodRedirect("{axis}()I")
         native int {getter}();
 '''
         if old in text:
             text = text.replace(old, new, 1)
-        elif f'@MethodRedirect("{axis}()I")' not in text:
+        elif new not in text:
             raise SystemExit(f"Unable to install {axis}() redirect in {path}")
 
     if '@MethodRedirect("x()I")' not in text or '@MethodRedirect("z()I")' not in text:
         raise SystemExit(f"Missing Minecraft 26.2 record accessor redirects in {path}")
+    if '@FieldToMethodRedirect("x:I")' in text or '@FieldToMethodRedirect("z:I")' in text:
+        raise SystemExit(f"Obsolete ChunkPos field redirects remain in {path}")
     path.write_text(text, encoding="utf-8")
 
 print("Mapped Minecraft 26.2 ChunkPos record accessors to Core positions")
