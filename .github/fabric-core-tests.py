@@ -106,6 +106,7 @@ runpy.run_path(".github/fabric-minecraft26-runtime.py", run_name="__fabric_minec
 runpy.run_path(".github/fabric-dasm26.py", run_name="__fabric_dasm26__")
 runpy.run_path(".github/fabric-position-accessors26.py", run_name="__fabric_position_accessors26__")
 runpy.run_path(".github/fabric-startup-injections26.py", run_name="__fabric_startup_injections26__")
+runpy.run_path(".github/fabric-protocube26.py", run_name="__fabric_protocube26__")
 storage_source = Path("src/main/java/io/github/opencubicchunks/cubicchunks/world/storage/CubeStorage.java")
 if "void save(CloAccess cube)" not in storage_source.read_text(encoding="utf-8"):
     runpy.run_path(".github/fabric-persistence26-migrate.py", run_name="__fabric_persistence26_migrate__")
