@@ -342,7 +342,7 @@ compileJava.dependsOn("CubicChunksCore:assemble")
 tasks.withType(Test).configureEach {
     // gradle docs suggest processors/2 which actually runs fractionally faster than just processors
     // forking a jvm is expensive.
-    maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+    maxParallelForks = Math.min(Runtime.runtime.availableProcessors().intdiv(2) ?: 1, 2)
 }
 
 test {
@@ -351,7 +351,9 @@ test {
 
 //    dependsOn(project.tasks.named("unzipTests"))
     useJUnitPlatform {
-        excludeTags "longRunTest"
+        if (!project.hasProperty("includeLongRunTests")) {
+            excludeTags "longRunTest"
+        }
     }
 
     // Always run tests, even when nothing changed.

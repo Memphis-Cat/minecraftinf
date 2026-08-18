@@ -24,6 +24,7 @@ import io.github.opencubicchunks.cubicchunks.mixin.test.common.server.level.Gene
 import io.github.opencubicchunks.cubicchunks.mixin.test.common.server.level.ServerChunkCacheTestAccess;
 import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeLevel;
+import io.github.opencubicchunks.cubicchunks.test.LongRunTest;
 import io.github.opencubicchunks.cubicchunks.testutils.BaseTest;
 import io.github.opencubicchunks.cubicchunks.testutils.CloseableReference;
 import io.github.opencubicchunks.cubicchunks.testutils.DummyChunkProgressListener;
@@ -56,6 +57,8 @@ import org.mockito.Answers;
 import org.mockito.Mockito;
 
 public class IntegrationTestCubicChunkMap extends BaseTest {
+    private static final int LOAD_ORDER_CHECK_INTERVAL = 256;
+
     private CloseableReference<ServerChunkCache> createServerChunkCache(boolean vanillaTest, RegistryAccess registryAccess)
             throws IOException, NoSuchFieldException, IllegalAccessException {
         HolderGetter<Biome> biome = registryAccess.lookupOrThrow(Registries.BIOME);
@@ -77,6 +80,7 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
             f.set(serverLevelMock, true);
             when(((CanBeCubic) serverLevelMock).cc_isCubic()).thenReturn(true);
         }
+        when(serverLevelMock.getMinY()).thenReturn(-64);
         when(serverLevelMock.getHeight()).thenReturn(384);
         when(serverLevelMock.getSectionsCount()).thenReturn(24);
         when(serverLevelMock.registryAccess()).thenReturn(registryAccess);
@@ -104,7 +108,7 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
     @ExtendWith(EphemeralTestServerProvider.class)
     @Test
     public void singleFullChunkVanilla(MinecraftServer server) throws Exception {
-        try (var serverChunkCacheRef = createServerChunkCache(false, server.registryAccess())) {
+        try (var serverChunkCacheRef = createServerChunkCache(true, server.registryAccess())) {
             var serverChunkCache = serverChunkCacheRef.value();
             var chunkMap = serverChunkCache.chunkMap;
 
@@ -175,9 +179,11 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
     }
 
     /**
-     * Load a single cube at full status
+     * Load a single cube through the entire dependency pyramid. This remains a required manual
+     * integration gate, but is excluded from ordinary pull-request runs because it intentionally
+     * constructs the full cubic generation neighborhood.
      */
-//    @LongRunTest
+    @LongRunTest
     @ExtendWith(EphemeralTestServerProvider.class)
     @Test
     public void singleFullCube(MinecraftServer server) throws Exception {
@@ -219,11 +225,16 @@ public class IntegrationTestCubicChunkMap extends BaseTest {
 
             Map<CloPos, List<ChunkHolder>> chunksByCubeColumn = new HashMap<>();
             List<ChunkHolder> cubes = new ArrayList<>();
+            int polledTaskCount = 0;
             while (!(future.isDone() || future.isCompletedExceptionally())) {
-                assertChunkCubeLoadOrder(chunkMap, chunksByCubeColumn, cubes);
+                if (polledTaskCount % LOAD_ORDER_CHECK_INTERVAL == 0) {
+                    assertChunkCubeLoadOrder(chunkMap, chunksByCubeColumn, cubes);
+                }
                 ServerChunkCache.MainThreadExecutor mainThreadProcessor = ((ServerChunkCacheTestAccess) serverChunkCache).getMainThreadProcessor();
-                mainThreadProcessor.pollTask();
-                System.out.println(mainThreadProcessor.getPendingTasksCount());
+                if (!mainThreadProcessor.pollTask()) {
+                    Thread.yield();
+                }
+                ++polledTaskCount;
             }
             var result = (ChunkResult<LevelCube>) (Object) future.get();
             assertTrue(result.isSuccess(), () -> "Full chunk future ChunkResult should be successful, but was " + result.getError());

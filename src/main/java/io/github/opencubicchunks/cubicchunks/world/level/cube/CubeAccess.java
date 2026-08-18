@@ -1,6 +1,7 @@
 package io.github.opencubicchunks.cubicchunks.world.level.cube;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -25,6 +26,7 @@ import it.unimi.dsi.fastutil.shorts.ShortList;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.QuartPos;
 import net.minecraft.core.Registry;
 import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
@@ -124,14 +126,28 @@ public abstract class CubeAccess implements CloAccess {
 
     @Override public abstract void addEntity(Entity entity);
 
-    // Next two methods are used for vanilla heightmaps/lighting/end gateways. We shouldn't need these
     @Override public int getHighestFilledSectionIndex() {
-        // TODO is there a better dummy value to return?
+        LevelChunkSection[] cubeSections = this.getSections();
+        for (int localSectionY = CubicConstants.DIAMETER_IN_SECTIONS - 1; localSectionY >= 0; localSectionY--) {
+            for (int localSectionZ = 0; localSectionZ < CubicConstants.DIAMETER_IN_SECTIONS; localSectionZ++) {
+                for (int localSectionX = 0; localSectionX < CubicConstants.DIAMETER_IN_SECTIONS; localSectionX++) {
+                    int sectionIndex = Coords.sectionToIndex(localSectionX, localSectionY, localSectionZ);
+                    if (!cubeSections[sectionIndex].hasOnlyAir()) {
+                        return sectionIndex;
+                    }
+                }
+            }
+        }
         return -1;
     }
 
     @Override public int getHighestSectionPosition() {
-        return this.getMinY();
+        int highestIndex = this.getHighestFilledSectionIndex();
+        if (highestIndex < 0) {
+            return this.cubePos.minCubeY();
+        }
+        int sectionY = Coords.cubeToSection(this.cubePos.getY(), Coords.indexToY(highestIndex));
+        return SectionPos.sectionToBlockCoord(sectionY);
     }
 
     @TransformFromMethod(value = "getBlockEntitiesPos()Ljava/util/Set;", owner = @Ref(ChunkAccess.class))
@@ -143,15 +159,21 @@ public abstract class CubeAccess implements CloAccess {
     @TransformFromMethod(value = "getSection(I)Lnet/minecraft/world/level/chunk/LevelChunkSection;", owner = @Ref(ChunkAccess.class))
     @Override public native LevelChunkSection getSection(int index);
 
-    // TODO (P2) heightmap methods on cubes
+    /**
+     * Global heightmaps are deliberately owned by the vanilla backing columns. A cube spans one
+     * or more columns, while a vanilla {@link Heightmap} is fixed to one 16x16 column, so storing
+     * one in a cube would be ambiguous and corrupt column generation data.
+     */
     @Override public Collection<Map.Entry<Heightmap.Types, Heightmap>> getHeightmaps() {
-        throw new UnsupportedOperationException();
+        return Collections.emptyList();
     }
 
-    @Override public void setHeightmap(Heightmap.Types type, long[] data) {}
+    @Override public void setHeightmap(Heightmap.Types type, long[] data) {
+        throw columnOwnedHeightmap(type);
+    }
 
     @Override public Heightmap getOrCreateHeightmapUnprimed(Heightmap.Types type) {
-        throw new UnsupportedOperationException();
+        throw columnOwnedHeightmap(type);
     }
 
     @Override public boolean hasPrimedHeightmap(Heightmap.Types type) {
@@ -159,9 +181,22 @@ public abstract class CubeAccess implements CloAccess {
     }
 
     @Override public int getHeight(Heightmap.Types type, int x, int z) {
-        return CubicChunks.SUPERFLAT_HEIGHT;
+        int blockX = this.cubePos.minCubeX() + Coords.blockToLocal(x);
+        int blockZ = this.cubePos.minCubeZ() + Coords.blockToLocal(z);
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        Predicate<BlockState> opaque = type.isOpaque();
+        for (int blockY = this.cubePos.maxCubeY(); blockY >= this.cubePos.minCubeY(); blockY--) {
+            BlockState state = this.getBlockState(cursor.set(blockX, blockY, blockZ));
+            if (opaque.test(state)) {
+                return blockY + 1;
+            }
+        }
+        return this.cubePos.minCubeY() - 1;
     }
-    // end heightmaps
+
+    private static IllegalStateException columnOwnedHeightmap(Heightmap.Types type) {
+        return new IllegalStateException("Heightmap " + type + " is owned by the vanilla backing column, not by a cube");
+    }
 
     public CubePos cc_getCubePos() {
         return cubePos;
@@ -198,13 +233,38 @@ public abstract class CubeAccess implements CloAccess {
     @Override public native void setAllReferences(Map<Structure, LongSet> structureReferencesMap);
 
     @Override public boolean isYSpaceEmpty(int startY, int endY) {
-        // TODO
-        return false;
+        int clampedStartY = Math.max(startY, this.cubePos.minCubeY());
+        int clampedEndY = Math.min(endY, this.cubePos.maxCubeY());
+        if (clampedStartY > clampedEndY) {
+            return true;
+        }
+
+        int firstSectionY = SectionPos.blockToSectionCoord(clampedStartY);
+        int lastSectionY = SectionPos.blockToSectionCoord(clampedEndY);
+        for (int sectionY = firstSectionY; sectionY <= lastSectionY; sectionY++) {
+            if (!this.isSectionEmpty(sectionY)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override public boolean isSectionEmpty(int sectionY) {
-        // TODO
-        return false;
+        int cubeMinSectionY = SectionPos.blockToSectionCoord(this.cubePos.minCubeY());
+        int localSectionY = sectionY - cubeMinSectionY;
+        if (localSectionY < 0 || localSectionY >= CubicConstants.DIAMETER_IN_SECTIONS) {
+            return true;
+        }
+
+        for (int localSectionZ = 0; localSectionZ < CubicConstants.DIAMETER_IN_SECTIONS; localSectionZ++) {
+            for (int localSectionX = 0; localSectionX < CubicConstants.DIAMETER_IN_SECTIONS; localSectionX++) {
+                int sectionIndex = Coords.sectionToIndex(localSectionX, localSectionY, localSectionZ);
+                if (!this.getSection(sectionIndex).hasOnlyAir()) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     @TransformFromMethod(value = "markUnsaved()V", owner = @Ref(ChunkAccess.class))
@@ -234,8 +294,10 @@ public abstract class CubeAccess implements CloAccess {
     @TransformFromMethod(value = "addPackedPostProcess(Lit/unimi/dsi/fastutil/shorts/ShortList;I)V", owner = @Ref(ChunkAccess.class))
     @Override public native void addPackedPostProcess(ShortList offsets, int index);
 
-    @TransformFromMethod(value = "setBlockEntityNbt(Lnet/minecraft/nbt/CompoundTag;)V", owner = @Ref(ChunkAccess.class))
-    @Override public native void setBlockEntityNbt(CompoundTag tag);
+    @Override public void setBlockEntityNbt(CompoundTag tag) {
+        BlockPos blockPos = new BlockPos(tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0));
+        this.pendingBlockEntities.put(blockPos, tag);
+    }
 
     @TransformFromMethod(value = "getBlockEntityNbt(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/nbt/CompoundTag;", owner = @Ref(ChunkAccess.class))
     @Override public native @Nullable CompoundTag getBlockEntityNbt(BlockPos pos);
@@ -324,19 +386,44 @@ public abstract class CubeAccess implements CloAccess {
     @Override public native int getHeight();
 
     @Override public NoiseChunk getOrCreateNoiseChunk(Function<CloAccess, NoiseChunk> noiseChunkCreator) {
-        throw new UnsupportedOperationException(); // TODO P3
+        if (this.noiseChunk == null) {
+            this.noiseChunk = noiseChunkCreator.apply(this);
+        }
+        return this.noiseChunk;
     }
 
     @Override public BiomeGenerationSettings carverBiome(Supplier<BiomeGenerationSettings> carverBiomeSettingsProvider) {
-        throw new UnsupportedOperationException(); // TODO P3
+        if (this.carverBiomeSettings == null) {
+            this.carverBiomeSettings = carverBiomeSettingsProvider.get();
+        }
+        return this.carverBiomeSettings;
     }
 
     @Override public Holder<Biome> getNoiseBiome(int x, int y, int z) {
-        throw new UnsupportedOperationException(); // TODO P3
+        int blockX = QuartPos.toBlock(x);
+        int blockY = QuartPos.toBlock(y);
+        int blockZ = QuartPos.toBlock(z);
+        if (Coords.blockToCube(blockX) != this.cubePos.getX() || Coords.blockToCube(blockY) != this.cubePos.getY()
+                || Coords.blockToCube(blockZ) != this.cubePos.getZ()) {
+            throw new IllegalArgumentException("Noise biome coordinate is outside cube " + this.cubePos + ": " + x + ", " + y + ", " + z);
+        }
+
+        LevelChunkSection section = this.sections[Coords.blockToIndex(blockX, blockY, blockZ)];
+        return section.getNoiseBiome(QuartPos.quartLocal(x), QuartPos.quartLocal(y), QuartPos.quartLocal(z));
     }
 
     @Override public void fillBiomesFromNoise(BiomeResolver resolver, Climate.Sampler sampler) {
-        throw new UnsupportedOperationException(); // TODO P3
+        for (int localSectionY = 0; localSectionY < CubicConstants.DIAMETER_IN_SECTIONS; localSectionY++) {
+            for (int localSectionZ = 0; localSectionZ < CubicConstants.DIAMETER_IN_SECTIONS; localSectionZ++) {
+                for (int localSectionX = 0; localSectionX < CubicConstants.DIAMETER_IN_SECTIONS; localSectionX++) {
+                    int sectionIndex = Coords.sectionToIndex(localSectionX, localSectionY, localSectionZ);
+                    int quartX = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getX(), localSectionX));
+                    int quartY = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getY(), localSectionY));
+                    int quartZ = QuartPos.fromSection(Coords.cubeToSection(this.cubePos.getZ(), localSectionZ));
+                    this.sections[sectionIndex].fillBiomesFromNoise(resolver, sampler, quartX, quartY, quartZ);
+                }
+            }
+        }
     }
 
     @TransformFromMethod(value = "hasAnyStructureReferences()Z", owner = @Ref(ChunkAccess.class))
@@ -354,11 +441,12 @@ public abstract class CubeAccess implements CloAccess {
     @Override public native LevelHeightAccessor getHeightAccessorForGeneration();
 
     @Override public void initializeLightSources() {
-        // TODO P2
+        // Skylight source heightmaps are column-shaped and remain owned by the backing columns.
+        // Cube section light data is supplied directly to LevelLightEngine during load.
     }
 
     @Override public ChunkSkyLightSources getSkyLightSources() {
-        throw new UnsupportedOperationException(); // TODO P2
+        return this.skyLightSources;
     }
 
     public static ProblemReporter.PathElement problemPath(CubePos cubePos) {

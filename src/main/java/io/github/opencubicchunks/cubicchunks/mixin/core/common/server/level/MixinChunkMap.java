@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
@@ -30,6 +31,7 @@ import io.github.opencubicchunks.cc_core.api.CubicConstants;
 import io.github.opencubicchunks.cc_core.utils.Coords;
 import io.github.opencubicchunks.cc_core.world.level.CloPos;
 import io.github.opencubicchunks.cubicchunks.CanBeCubic;
+import io.github.opencubicchunks.cubicchunks.CubicChunks;
 import io.github.opencubicchunks.cubicchunks.MarkableAsCubic;
 import io.github.opencubicchunks.cubicchunks.mixin.core.common.world.level.chunk.storage.MixinChunkStorage;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
@@ -40,17 +42,28 @@ import io.github.opencubicchunks.cubicchunks.network.CCClientboundSetCubeCacheCe
 import io.github.opencubicchunks.cubicchunks.server.level.CCServerPlayer;
 import io.github.opencubicchunks.cubicchunks.server.level.CloGenerationTask;
 import io.github.opencubicchunks.cubicchunks.server.level.CloHolder;
+import io.github.opencubicchunks.cubicchunks.server.level.CloStatusUpdates;
 import io.github.opencubicchunks.cubicchunks.server.level.CloTrackingView;
 import io.github.opencubicchunks.cubicchunks.server.level.CubeHolder;
+import io.github.opencubicchunks.cubicchunks.server.level.CubeMapMath;
 import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
+import io.github.opencubicchunks.cubicchunks.server.level.CubicServerLevel;
 import io.github.opencubicchunks.cubicchunks.server.level.GeneratingCubeMap;
+import io.github.opencubicchunks.cubicchunks.server.level.GenerationCloHolder;
 import io.github.opencubicchunks.cubicchunks.server.level.progress.CloProgressListener;
 import io.github.opencubicchunks.cubicchunks.util.StaticCache3D;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.CloAccess;
+import io.github.opencubicchunks.cubicchunks.world.level.chunklike.ImposterProtoClo;
 import io.github.opencubicchunks.cubicchunks.world.level.chunklike.LevelClo;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
+import io.github.opencubicchunks.cubicchunks.world.level.cube.ImposterProtoCube;
+import io.github.opencubicchunks.cubicchunks.world.level.cube.LevelCube;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.status.CubeStep;
 import io.github.opencubicchunks.cubicchunks.world.level.entity.CloStatusUpdateListener;
+import io.github.opencubicchunks.cubicchunks.world.storage.CubeStorage;
+import it.unimi.dsi.fastutil.longs.Long2ByteMap;
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.minecraft.ReportedException;
 import net.minecraft.Util;
 import net.minecraft.nbt.CompoundTag;
@@ -63,13 +76,16 @@ import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.GenerationChunkHolder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.server.level.progress.ChunkProgressListener;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.thread.BlockableEventLoop;
 import net.minecraft.world.entity.ai.village.poi.PoiManager;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.TicketStorage;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.status.ChunkType;
@@ -100,8 +116,16 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
 
     @Shadow protected abstract ChunkHolder getUpdatingChunkIfPresent(long aLong);
 
+    @Shadow protected abstract @Nullable ChunkHolder getVisibleChunkIfPresent(long position);
+
     @Shadow @Final ServerLevel level;
     @Shadow @Final private ChunkMap.DistanceManager distanceManager;
+    @Shadow @Final private Long2ObjectLinkedOpenHashMap<ChunkHolder> pendingUnloads;
+    @Shadow @Final private ThreadedLevelLightEngine lightEngine;
+    @Shadow @Final private PoiManager poiManager;
+    @Shadow @Final private Long2ByteMap chunkTypeCache;
+    @Shadow @Final private Long2LongMap nextChunkSaveTime;
+    @Shadow @Final private Queue<Runnable> unloadQueue;
 
     @Shadow @Final private static CompletableFuture<ChunkResult<List<CloAccess>>> UNLOADED_CHUNK_LIST_FUTURE;
     @Shadow @Final private static ChunkResult<List<CloAccess>> UNLOADED_CHUNK_LIST_RESULT;
@@ -115,6 +139,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     private CloProgressListener cc_progressListener;
     @AddFieldToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, field = "chunkStatusListener:Lnet/minecraft/world/level/entity/ChunkStatusUpdateListener;")
     private CloStatusUpdateListener cc_cloStatusListener;
+    private CubeStorage cc_cubeStorage;
 
     // TODO once we can target non-return locations in constructors, do this when the vanilla field is set
     @Inject(method = "<init>", at = @At("RETURN"))
@@ -126,16 +151,19 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     ) {
         if (((CanBeCubic) level).cc_isCubic()) {
             cc_progressListener = ((CloProgressListener) progressListener);
-            // TODO P2 (entities): actually pass in a cloStatusListener - since ChunkStatusUpdateListener is passed as a parameter, not sure what the
-            // best approach is without making our own constructor
-            cc_cloStatusListener = (cloPos, fullChunkStatus) -> {};
+            cc_cloStatusListener = CloStatusUpdates.adapt(chunkStatusListener);
             ((MarkableAsCubic) distanceManager).cc_setCubic();
+            cc_cubeStorage = new CubeStorage(levelStorageAccess.getDimensionPath(level.dimension()).resolve("cubicchunks").resolve("cubes"));
         }
     }
 
     @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
     @TransformFromMethod("setChunkUnsaved(Lnet/minecraft/world/level/ChunkPos;)V")
-    private native void cc_setCloUnsaved(CloPos cloPos);
+    @Override public native void cc_setCloUnsaved(CloPos cloPos);
+
+    @Override public @Nullable ChunkHolder cc_getVisibleChunkIfPresent(long position) {
+        return this.getVisibleChunkIfPresent(position);
+    }
 
     /**
      * Returns the squared distance to the center of the cube.
@@ -147,13 +175,7 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
             return euclideanDistanceSquared(cloPos.chunkPos(), vec3);
 //            throw new UnsupportedOperationException("Should not call euclideanDistanceSquared with a chunk position");
         }
-        double cubeCenterX = Coords.cubeToCenterBlock(cloPos.getX());
-        double cubeCenterY = Coords.cubeToCenterBlock(cloPos.getX());
-        double cubeCenterZ = Coords.cubeToCenterBlock(cloPos.getX());
-        double dx = cubeCenterX - vec3.x();
-        double dy = cubeCenterY - vec3.y();
-        double dz = cubeCenterZ - vec3.z();
-        return dx * dx + dy * dy + dz * dz;
+        return CubeMapMath.euclideanDistanceSquared(cloPos, vec3);
     }
 
     // TODO make vanilla isChunkTracked/isChunkOnTrackedBorder fail in cubic world
@@ -313,14 +335,69 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     private native void cc_saveClosEagerly(BooleanSupplier hasMoreTime);
 
     @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "scheduleUnload(JLnet/minecraft/server/level/ChunkHolder;)V")
-    private void cc_scheduleUnload(long chunkPos, ChunkHolder chunkHolder) {
-        // TODO (P2) save/load
+    private void cc_scheduleUnload(long packedCloPos, ChunkHolder cloHolder) {
+        CompletableFuture<?> saveFuture = cloHolder.getSaveSyncFuture();
+        saveFuture.thenRunAsync(() -> {
+            CompletableFuture<?> currentSaveFuture = cloHolder.getSaveSyncFuture();
+            if (currentSaveFuture != saveFuture) {
+                this.cc_scheduleUnload(packedCloPos, cloHolder);
+                return;
+            }
+
+            CloAccess cloAccess = ((GenerationCloHolder) cloHolder).cc_getLatestClo();
+            if (!this.pendingUnloads.remove(packedCloPos, cloHolder) || cloAccess == null) {
+                return;
+            }
+
+            CloPos cloPos = cloAccess.cc_getCloPos();
+            if (cloAccess instanceof LevelCube levelCube) {
+                levelCube.setLoaded(false);
+                this.cc_save(levelCube);
+                ((CubicServerLevel) this.level).cc_unloadClo(levelCube);
+            } else {
+                ChunkAccess chunkAccess = (ChunkAccess) cloAccess;
+                net.neoforged.neoforge.common.CommonHooks.onChunkUnload(this.poiManager, chunkAccess);
+                this.chunkTypeCache.remove(chunkAccess.getPos().toLong());
+                if (chunkAccess instanceof LevelChunk levelChunk) {
+                    levelChunk.setLoaded(false);
+                }
+                this.cc_save(cloAccess);
+                if (chunkAccess instanceof LevelChunk levelChunk) {
+                    net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.event.level.ChunkEvent.Unload(levelChunk));
+                    this.level.unload(levelChunk);
+                }
+                ((io.github.opencubicchunks.cubicchunks.mixin.access.common.ThreadedLevelLightEngineAccess) (Object) this.lightEngine)
+                        .cc_invokeUpdateChunkStatus(chunkAccess.getPos());
+                this.lightEngine.tryScheduleUpdate();
+            }
+
+            this.cc_progressListener.cc_onStatusChange(cloPos, null);
+            this.nextChunkSaveTime.remove(packedCloPos);
+        }, this.unloadQueue::add).whenComplete((ignored, exception) -> {
+            if (exception != null) {
+                CubicChunks.LOGGER.error("Failed to unload chunk or cube {}", ((CloHolder) cloHolder).cc_getCloPos(), exception);
+            }
+        });
     }
 
     // region [cc_scheduleChunkLoad dasm + mixin]
     @AddTransformToSets(ChunkToCloSet.ChunkMap_redirects.class)
     @TransformFromMethod("scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")
     private native CompletableFuture<CloAccess> cc_scheduleChunkLoad(CloPos cloPos);
+
+    @Dynamic @Inject(method = "cc_scheduleChunkLoad(Lio/github/opencubicchunks/cc_core/world/level/CloPos;)Ljava/util/concurrent/CompletableFuture;", at = @At("HEAD"), cancellable = true, require = 0)
+    private void cc_loadStoredCube(CloPos cloPos, CallbackInfoReturnable<CompletableFuture<CloAccess>> cir) {
+        if (!cloPos.isCube()) {
+            return;
+        }
+
+        try {
+            Optional<ImposterProtoCube> storedCube = cc_cubeStorage.load(level, cloPos.cubePos());
+            storedCube.ifPresent(cube -> cir.setReturnValue(CompletableFuture.completedFuture(cube)));
+        } catch (Exception exception) {
+            CubicChunks.LOGGER.error("Failed to load cube {}", cloPos, exception);
+        }
+    }
 
     @AddMethodToSets(containers = ChunkToCubeSet.ChunkMap_redirects.class, method = "scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;")
     private CompletableFuture<CloAccess> cc_scheduleChunkLoad(CubePos cubePos) {
@@ -330,8 +407,20 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     @Dynamic @Redirect(method = "cc_scheduleChunkLoad", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/ai/village/poi/PoiManager;prefetch(Lio/github/opencubicchunks/cc_core/world/level/CloPos;)"
             + "Ljava/util/concurrent/CompletableFuture;"))
     private CompletableFuture<?> cc_onScheduleChunkLoad_poiManagerPreFetch(PoiManager instance, CloPos cloPos) {
-        // TODO (P2) save/load - PoiManager
-        return CompletableFuture.completedFuture(null);
+        if (cloPos.isChunk()) {
+            return instance.prefetch(cloPos.chunkPos());
+        }
+
+        CubePos cubePos = cloPos.cubePos();
+        CompletableFuture<?>[] futures = new CompletableFuture[CubicConstants.CHUNK_COUNT];
+        int index = 0;
+        for (int localChunkZ = 0; localChunkZ < CubicConstants.DIAMETER_IN_SECTIONS; localChunkZ++) {
+            for (int localChunkX = 0; localChunkX < CubicConstants.DIAMETER_IN_SECTIONS; localChunkX++) {
+                futures[index++] = instance
+                        .prefetch(new ChunkPos(Coords.cubeToSection(cubePos.getX(), localChunkX), Coords.cubeToSection(cubePos.getZ(), localChunkZ)));
+            }
+        }
+        return CompletableFuture.allOf(futures);
     }
     // endregion
 
@@ -432,10 +521,31 @@ public abstract class MixinChunkMap extends MixinChunkStorage implements Generat
     @TransformFromMethod("saveChunkIfNeeded(Lnet/minecraft/server/level/ChunkHolder;J)Z")
     private native boolean cc_saveChunkIfNeeded(ChunkHolder holder, long gameTime);
 
-    // TODO (P2): for now we just don't save (requires more things to be CC-ified to not crash)
     @AddMethodToSets(containers = ChunkToCloSet.ChunkMap_redirects.class, method = "save(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z")
     private boolean cc_save(CloAccess cloAccess) {
-        return false;
+        LevelCube cube = cc_asLevelCube(cloAccess);
+        if (cube == null || !cube.tryMarkSaved()) {
+            return false;
+        }
+
+        try {
+            cc_cubeStorage.save(cube);
+            return true;
+        } catch (Exception exception) {
+            cube.markUnsaved();
+            CubicChunks.LOGGER.error("Failed to save cube {}", cube.cc_getCubePos(), exception);
+            return false;
+        }
+    }
+
+    private static @Nullable LevelCube cc_asLevelCube(CloAccess cloAccess) {
+        if (cloAccess instanceof LevelCube levelCube) {
+            return levelCube;
+        }
+        if (cloAccess instanceof ImposterProtoClo imposter && imposter.cc_getWrappedClo() instanceof LevelCube levelCube) {
+            return levelCube;
+        }
+        return null;
     }
 
 //    //region [cc_save dasm + mixin]

@@ -2,6 +2,12 @@ package io.github.opencubicchunks.cubicchunks.client.multiplayer;
 
 import static io.github.notstirred.dasm.api.annotations.transform.Visibility.PUBLIC;
 
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.Consumer;
@@ -27,9 +33,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 public interface ClientCubeCache extends CubeSource {
-    // TODO (P2) we might want a version of the vanilla replaceWithPacketData with a different signature for handling chunks, since we only need
-    // heightmap data with CC
-
     void cc_drop(CubePos chunkPos);
 
     void cc_replaceBiomes(int x, int y, int z, FriendlyByteBuf buffer);
@@ -43,8 +46,6 @@ public interface ClientCubeCache extends CubeSource {
 
     void cc_updateViewRadius(int viewDistance);
 
-    // Fields and methods on this are public so they can be accessed from MixinClientChunkCache and tests; they should not be used anywhere else
-    // (This has to be here since we can't add inner classes with mixin)
     @Dasm(ChunkToCubeSet.class)
     final class Storage {
         public final AtomicReferenceArray<LevelCube> chunks;
@@ -55,7 +56,6 @@ public interface ClientCubeCache extends CubeSource {
         public volatile int viewCenterY;
         public volatile int viewCenterZ;
         public int chunkCount;
-        // Field added since we can't get it off ClientChunkCache since this is no longer an inner class
         final ClientLevel level;
 
         public Storage(int chunkRadius, ClientLevel clientLevel) {
@@ -70,26 +70,32 @@ public interface ClientCubeCache extends CubeSource {
                     + Math.floorMod(x, this.viewRange);
         }
 
-        public void replace(int chunkIndex, @Nullable LevelCube chunk) {
-            LevelCube levelchunk = this.chunks.getAndSet(chunkIndex, chunk);
-            if (levelchunk != null) {
+        public @Nullable LevelCube replace(int chunkIndex, @Nullable LevelCube chunk) {
+            LevelCube previous = this.chunks.getAndSet(chunkIndex, chunk);
+            if (previous == chunk) {
+                return previous;
+            }
+            if (previous != null) {
                 --this.chunkCount;
-                this.dropEmptySections(levelchunk);
-//                this.level.unload(levelchunk); // TODO P2
+                this.dropEmptySections(previous);
+                previous.clearAllBlockEntities();
             }
 
             if (chunk != null) {
                 ++this.chunkCount;
+                this.addEmptySections(chunk);
             }
+            return previous;
         }
 
-        public void drop(int chunkIndex, LevelCube chunk) {
-            if (this.chunks.compareAndSet(chunkIndex, chunk, null)) {
-                this.chunkCount--;
-                this.dropEmptySections(chunk);
+        public boolean drop(int chunkIndex, LevelCube chunk) {
+            if (!this.chunks.compareAndSet(chunkIndex, chunk, null)) {
+                return false;
             }
-
-//            this.level.unload(chunk); // TODO P2
+            this.chunkCount--;
+            this.dropEmptySections(chunk);
+            chunk.clearAllBlockEntities();
+            return true;
         }
 
         public void onSectionEmptinessChanged(int x, int y, int z, boolean isEmpty) {
@@ -98,13 +104,13 @@ public interface ClientCubeCache extends CubeSource {
                 if (isEmpty) {
                     this.loadedEmptySections.add(i);
                 } else if (this.loadedEmptySections.remove(i)) {
-//                    ClientChunkCache.this.level.onSectionBecomingNonEmpty(i); // TODO P2
+                    this.level.onSectionBecomingNonEmpty(i);
                 }
             }
         }
 
         public void dropEmptySections(LevelCube chunk) {
-            var cubePos = chunk.cc_getCubePos();
+            CubePos cubePos = chunk.cc_getCubePos();
 
             for (int dx = 0; dx < CubicConstants.DIAMETER_IN_SECTIONS; dx++) {
                 for (int dy = 0; dy < CubicConstants.DIAMETER_IN_SECTIONS; dy++) {
@@ -118,13 +124,13 @@ public interface ClientCubeCache extends CubeSource {
         }
 
         public void addEmptySections(LevelCube chunk) {
-            var cubePos = chunk.cc_getCubePos();
+            CubePos cubePos = chunk.cc_getCubePos();
             LevelChunkSection[] chunkSections = chunk.getSections();
 
             for (int dx = 0; dx < CubicConstants.DIAMETER_IN_SECTIONS; dx++) {
                 for (int dy = 0; dy < CubicConstants.DIAMETER_IN_SECTIONS; dy++) {
                     for (int dz = 0; dz < CubicConstants.DIAMETER_IN_SECTIONS; dz++) {
-                        var chunkSection = chunkSections[Coords.sectionToIndex(dx, dy, dz)];
+                        LevelChunkSection chunkSection = chunkSections[Coords.sectionToIndex(dx, dy, dz)];
                         long sectionPosLong = SectionPos.asLong(Coords.cubeToSection(cubePos.getX(), dx), Coords.cubeToSection(cubePos.getY(), dy),
                                 Coords.cubeToSection(cubePos.getZ(), dz));
                         if (chunkSection.hasOnlyAir()) {
@@ -136,19 +142,19 @@ public interface ClientCubeCache extends CubeSource {
         }
 
         public void refreshEmptySections(LevelCube chunk) {
-            var cubePos = chunk.cc_getCubePos();
+            CubePos cubePos = chunk.cc_getCubePos();
             LevelChunkSection[] chunkSections = chunk.getSections();
 
             for (int dx = 0; dx < CubicConstants.DIAMETER_IN_SECTIONS; dx++) {
                 for (int dy = 0; dy < CubicConstants.DIAMETER_IN_SECTIONS; dy++) {
                     for (int dz = 0; dz < CubicConstants.DIAMETER_IN_SECTIONS; dz++) {
-                        var chunkSection = chunkSections[Coords.sectionToIndex(dx, dy, dz)];
+                        LevelChunkSection chunkSection = chunkSections[Coords.sectionToIndex(dx, dy, dz)];
                         long sectionPosLong = SectionPos.asLong(Coords.cubeToSection(cubePos.getX(), dx), Coords.cubeToSection(cubePos.getY(), dy),
                                 Coords.cubeToSection(cubePos.getZ(), dz));
                         if (chunkSection.hasOnlyAir()) {
                             this.loadedEmptySections.add(sectionPosLong);
                         } else if (this.loadedEmptySections.remove(sectionPosLong)) {
-//                            ClientChunkCache.this.level.onSectionBecomingNonEmpty(sectionPosLong); // TODO P2
+                            this.level.onSectionBecomingNonEmpty(sectionPosLong);
                         }
                     }
                 }
@@ -164,7 +170,36 @@ public interface ClientCubeCache extends CubeSource {
         public native @Nullable LevelCube getChunk(int chunkIndex);
 
         public void dumpChunks(String filePath) {
-            // TODO reimplement debug code
+            Path output = Path.of(filePath);
+            try {
+                Path parent = output.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                try (BufferedWriter writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
+                    writer.write("index\tcube_x\tcube_y\tcube_z\tempty_sections\ttotal_sections");
+                    writer.newLine();
+                    for (int index = 0; index < this.chunks.length(); ++index) {
+                        LevelCube cube = this.chunks.get(index);
+                        if (cube == null) {
+                            continue;
+                        }
+                        CubePos cubePos = cube.cc_getCubePos();
+                        int emptySections = 0;
+                        LevelChunkSection[] sections = cube.getSections();
+                        for (LevelChunkSection section : sections) {
+                            if (section.hasOnlyAir()) {
+                                ++emptySections;
+                            }
+                        }
+                        writer.write(index + "\t" + cubePos.getX() + "\t" + cubePos.getY() + "\t" + cubePos.getZ() + "\t" + emptySections + "\t"
+                                + sections.length);
+                        writer.newLine();
+                    }
+                }
+            } catch (IOException exception) {
+                throw new UncheckedIOException("Failed to dump client cube cache to " + output, exception);
+            }
         }
     }
 }

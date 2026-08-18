@@ -4,7 +4,10 @@ import javax.annotation.Nullable;
 
 import io.github.opencubicchunks.cc_core.api.CubePos;
 import io.github.opencubicchunks.cc_core.world.level.CloPos;
+import io.github.opencubicchunks.cubicchunks.world.level.chunklike.CloAccess;
+import io.github.opencubicchunks.cubicchunks.world.level.cube.CubeAccess;
 import io.github.opencubicchunks.cubicchunks.world.level.cube.ImposterProtoCube;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 public interface GenerationCloHolder {
     CloPos cc_getCloPos();
@@ -12,4 +15,8 @@ public interface GenerationCloHolder {
     @Nullable CubePos cc_getCubePos();
 
     void cc_replaceProtoCube(ImposterProtoCube cube);
+
+    @Nullable CubeAccess cc_getCubeIfPresentUnchecked(ChunkStatus status);
+
+    @Nullable CloAccess cc_getLatestClo();
 }

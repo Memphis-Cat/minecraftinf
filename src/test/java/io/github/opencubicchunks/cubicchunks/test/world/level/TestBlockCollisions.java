@@ -1,5 +1,6 @@
 package io.github.opencubicchunks.cubicchunks.test.world.level;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -17,6 +18,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockCollisions;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.CollisionGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -44,6 +46,13 @@ public class TestBlockCollisions extends BaseTest {
             when(blockGetter.getBlockState(any())).then(AdditionalAnswers.delegatesTo(dummyBlockGetter));
             return blockGetter;
         }
+    }
+
+    @Test
+    public void nonCubicCollisionGetterUsesVanillaPath() {
+        CollisionGetter collisionGetter = mock(CollisionGetter.class);
+        assertDoesNotThrow(
+                () -> new BlockCollisions<Void>(collisionGetter, (Entity) null, new AABB(0, 0, 0, 1, 1, 1), false, (pos, voxelShape) -> null));
     }
 
     @Test

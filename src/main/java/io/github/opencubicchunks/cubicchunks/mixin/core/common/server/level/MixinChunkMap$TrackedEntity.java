@@ -5,6 +5,9 @@ import io.github.notstirred.dasm.api.annotations.redirect.redirects.AddTransform
 import io.github.notstirred.dasm.api.annotations.selector.Ref;
 import io.github.notstirred.dasm.api.annotations.transform.TransformFromMethod;
 import io.github.opencubicchunks.cubicchunks.mixin.dasmsets.ChunkToCloSet;
+import io.github.opencubicchunks.cubicchunks.server.level.CubicChunkMap;
+import io.github.opencubicchunks.cubicchunks.server.level.EntityTracking;
+import io.github.opencubicchunks.cubicchunks.world.entity.EntityCubePosGetter;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -27,8 +30,7 @@ public abstract class MixinChunkMap$TrackedEntity {
 
     @Dynamic @Redirect(method = "cc_updatePlayer", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ChunkMap;isChunkTracked(Lnet/minecraft/server/level/ServerPlayer;II)Z"))
     private boolean cc_updatePlayer_isChunkTracked(ChunkMap instance, ServerPlayer player, int x, int z) {
-        // FIXME entity clo position once implemented
-        return false; // ((CubicChunkMap) instance).cc_isChunkTracked(player, this.entity.chunkPosition().x, 0, this.entity.chunkPosition().z);
+        return EntityTracking.isTracked((CubicChunkMap) instance, player, (EntityCubePosGetter) this.entity);
     }
     // endregion
 }
